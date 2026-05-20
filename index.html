@@ -95,6 +95,7 @@
   </label>
   <button class="tb-btn" onclick="showFormatGuide()">📋 Format Guide</button>
   <button class="tb-btn" onclick="exportCSV()">⬇ Export CSV</button>
+  <button class="tb-btn" style="color:#f87171;border-color:#7f1d1d" onclick="confirmClearAll()">🗑 Clear All</button>
   <div class="spacer"></div>
   <button class="tb-btn" onclick="openSettings()">⚙ Settings</button>
 </div>
@@ -354,6 +355,9 @@ function parseRegionsSheet(sheet){
     const stateName=normState(String(stateCell.v).trim());
     if(!stateName) continue;
 
+    // Debug: log raw style for first 10 rows so we can diagnose color issues
+    if(r<=10) console.log('Row',r,stateName,'cell.s=',JSON.stringify(stateCell.s));
+
     // Get fill color — if none, this state has no shading, skip it
     const catCell=sheetCell(sheet,1,r);
     const color=cellFillColor(stateCell)||cellFillColor(catCell);
@@ -427,6 +431,11 @@ function handleXLSX(e){
       if(!nameCol||!addrCol){
         toast('Locations sheet needs name/company and address columns','error');
       } else {
+        // Clear existing locations and markers before importing fresh
+        Object.values(markers).forEach(m=>m.remove());
+        markers={};
+        locations=[];
+
         for(const row of rows){
           const name=String(row[nameCol]||'').trim();
           const addr=String(row[addrCol]||'').trim();
@@ -442,7 +451,6 @@ function handleXLSX(e){
             }catch{lat=null;lng=null;failed++;}
           }
           const cat=catCol?String(row[catCol]||'').trim():'';
-          // If category from sheet not in our list, add it with fallback color
           if(cat&&!categories.find(c=>c.name===cat))
             categories.push({name:cat,color:FALLBACK_COLORS[categories.length%FALLBACK_COLORS.length]});
           locations.push({
@@ -788,6 +796,24 @@ function toast(msg,type){
   const t=document.getElementById('toast');t.textContent=msg;
   t.className='show'+(type==='error'?' error':'');
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>{t.className='';},3500);
+}
+
+function confirmClearAll(){
+  requireAuth(()=>{
+    showModal(`<h3>Clear all locations?</h3>
+      <p>This removes all ${locations.length} pins from the map. This cannot be undone.</p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-danger" onclick="clearAllLocations()">Clear All</button>
+      </div>`);
+  });
+}
+function clearAllLocations(){
+  closeModal();
+  Object.values(markers).forEach(m=>m.remove());
+  markers={};locations=[];
+  save();renderAll();closeSidebar();
+  toast('All locations cleared');
 }
 
 renderAll();

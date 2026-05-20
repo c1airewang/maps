@@ -131,7 +131,10 @@ stateLayerGroup.addTo(map);
 
 // ── US states TopoJSON ────────────────────────────────────────────────────────
 fetch('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json')
-  .then(r=>r.json()).then(topo=>{ statesGeoJSON=topoToGeo(topo,topo.objects.states); renderStateLayer(); })
+  .then(r=>r.json()).then(topo=>{
+    statesGeoJSON=topoToGeo(topo,topo.objects.states);
+    renderStateLayer();
+  })
   .catch(()=>console.warn('Could not load states GeoJSON'));
 
 function topoToGeo(topo,obj){
@@ -659,7 +662,9 @@ async function syncFromSheet(){
           if(Object.keys(newRegions).length){
             regions=newRegions;
             regionCategories=Object.entries(newRegionCats).map(([name,color])=>({name,color}));
-            saveRegions();renderStateLayer();
+            saveRegions();
+            if(statesGeoJSON) renderStateLayer();
+            // if GeoJSON not yet loaded, the fetch .then() will call renderStateLayer when ready
           }
         }
       }

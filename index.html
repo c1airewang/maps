@@ -69,14 +69,16 @@
 <body>
 
 <div id="topbar">
-  <h1>📍 Location Map</h1>
   <button class="tb-btn" onclick="openSidebar('list')">☰ List View</button>
   <div id="url-area" style="display:flex;align-items:center;gap:6px;flex:1;max-width:480px;margin:0 8px">
-    <input type="text" id="sheet-url-input" placeholder="Paste Google Sheets URL to get started…"
+    <input type="password" id="sheet-url-input" placeholder="Paste Google Sheets URL to get started…"
       style="flex:1;background:#1e2535;border:1px solid #2a3045;color:#c5c9d6;padding:5px 10px;border-radius:6px;font-size:12px;outline:none;min-width:0"
       oninput="onUrlInput()" value="">
     <button id="url-eye" onclick="toggleUrlVisibility()" title="Show/hide URL"
-      style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:15px;padding:2px 4px;flex-shrink:0">👁</button>
+      style="background:none;border:none;color:#6b7280;cursor:pointer;padding:4px;flex-shrink:0;display:flex;align-items:center;border-radius:4px;transition:color .15s"
+      onmouseover="this.style.color='#c5c9d6'" onmouseout="this.style.color='#6b7280'">
+      <svg id="eye-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+    </button>
     <button id="sync-btn" class="tb-btn primary" onclick="syncFromSheet()" style="flex-shrink:0">🔄 Sync</button>
   </div>
 </div>
@@ -541,7 +543,7 @@ function initUrlBar(){
   if(saved){
     input.value=saved;
     input.type='password'; // hidden by default when populated
-    document.getElementById('url-eye').textContent='👁';
+    // eye icon already set by default in HTML
   }
   document.getElementById('sync-btn').style.display=saved?'flex':'none';
 }
@@ -554,9 +556,16 @@ function onUrlInput(){
 
 function toggleUrlVisibility(){
   const input=document.getElementById('sheet-url-input');
-  const eye=document.getElementById('url-eye');
-  if(input.type==='password'){input.type='text';eye.textContent='🙈';}
-  else{input.type='password';eye.textContent='👁';}
+  const icon=document.getElementById('eye-icon');
+  if(input.type==='password'){
+    input.type='text';
+    // URL now visible — show open eye
+    icon.innerHTML='<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+  } else {
+    input.type='password';
+    // URL now hidden — show eye-off
+    icon.innerHTML='<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>';
+  }
 }
 
 function normaliseHex(val){

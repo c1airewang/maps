@@ -467,7 +467,11 @@ function renderLegend(){
   if(!hasPins&&!hasRegions){el.style.display='none';return;}
   el.style.display='block';
   if(hasPins){
-    html+=`<div class="legend-section-title">Locations</div>`;
+    const allHidden=sortedCategories().filter(c=>locations.find(l=>l.category===c.name)).every(c=>hiddenCats.has(c.name));
+    html+=`<div class="legend-section-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Locations</span>
+      <span onclick="${allHidden?'showAllCats()':'hideAllCats()'}" style="font-size:10px;color:#6b7280;cursor:pointer;font-weight:400;letter-spacing:0;text-transform:none">${allHidden?'show all':'hide all'}</span>
+    </div>`;
     sortedCategories().forEach(c=>{
       const count=locations.filter(l=>l.category===c.name).length;
       if(!count) return;
@@ -489,6 +493,14 @@ function renderLegend(){
 
 function toggleCat(cat){
   hiddenCats.has(cat)?hiddenCats.delete(cat):hiddenCats.add(cat);
+  applyVisibility();renderLegend();
+}
+function hideAllCats(){
+  categories.forEach(c=>hiddenCats.add(c.name));
+  applyVisibility();renderLegend();
+}
+function showAllCats(){
+  hiddenCats.clear();
   applyVisibility();renderLegend();
 }
 function toggleRegionCat(cat){
@@ -644,15 +656,19 @@ async function syncFromSheet(){
           const r=rows[i];
           const name=String(r[0]||'').trim();
           if(!name) continue;
-          const hex=normaliseHex(r[1]);
-          const orderRaw=String(r[2]||'').trim();
+          // Col B: hex color — SheetJS returns cell value as string
+          const rawHex=r[1]!==undefined&&r[1]!==null?String(r[1]).trim():'';
+          const hex=normaliseHex(rawHex);
+          const orderRaw=r[2]!==undefined&&r[2]!==null?String(r[2]).trim():'';
           const order=orderRaw!==''&&!isNaN(orderRaw)?parseInt(orderRaw):null;
+          console.log(`Category row ${i}: name="${name}" rawHex="${rawHex}" hex="${hex}" order="${order}"`);
           newCats.push({name,color:hex||FALLBACK_COLORS[newCats.length%FALLBACK_COLORS.length],order});
         }
         if(newCats.length){
           const seen=new Set();
           categories=newCats.filter(c=>{if(seen.has(c.name))return false;seen.add(c.name);return true;});
           save();
+          console.log('Final categories:', JSON.stringify(categories));
         }
       }
     }

@@ -448,6 +448,17 @@ function renderAll(){
   if(sb.classList.contains('open')&&document.getElementById('sidebar-title').textContent==='All Locations') renderList();
 }
 
+// Sort categories: positive order first (asc), then alphabetical (no order), then negatives last (desc by absolute value)
+function sortedCategories(){
+  const pos=categories.filter(c=>c.order!==null&&c.order!==undefined&&c.order>=0);
+  const none=categories.filter(c=>c.order===null||c.order===undefined);
+  const neg=categories.filter(c=>c.order!==null&&c.order!==undefined&&c.order<0);
+  pos.sort((a,b)=>a.order-b.order);
+  none.sort((a,b)=>a.name.localeCompare(b.name));
+  neg.sort((a,b)=>a.order-b.order); // -1 before -2 before -3
+  return [...pos,...none,...neg];
+}
+
 function renderLegend(){
   const el=document.getElementById('legend');
   let html='';
@@ -457,7 +468,7 @@ function renderLegend(){
   el.style.display='block';
   if(hasPins){
     html+=`<div class="legend-section-title">Locations</div>`;
-    categories.forEach(c=>{
+    sortedCategories().forEach(c=>{
       const count=locations.filter(l=>l.category===c.name).length;
       if(!count) return;
       const muted=hiddenCats.has(c.name)?'muted':'';
@@ -503,7 +514,14 @@ function closeSidebar(){document.getElementById('sidebar').classList.remove('ope
 
 function renderList(){
   document.getElementById('sidebar-title').textContent='All Locations';
-  const items=locations.map(l=>`<li class="pin-item" onclick="flyTo('${l.id}')">
+  // Group locations by category in sorted order, then alphabetically within each group
+  const catOrder=sortedCategories().map(c=>c.name);
+  const sorted=[...locations].sort((a,b)=>{
+    const ai=catOrder.indexOf(a.category);const bi=catOrder.indexOf(b.category);
+    if(ai!==bi) return (ai<0?999:ai)-(bi<0?999:bi);
+    return a.name.localeCompare(b.name);
+  });
+  const items=sorted.map(l=>`<li class="pin-item" onclick="flyTo('${l.id}')">
     <span class="pin-dot" style="background:${catColor(l.category)}"></span>
     <span class="pin-name">${l.name}</span><span class="pin-cat">${l.category||''}</span></li>`).join('');
   document.getElementById('sidebar-body').innerHTML=`<div style="font-size:12px;color:#6b7280;margin-bottom:8px">${locations.length} locations</div>
@@ -616,23 +634,25 @@ async function syncFromSheet(){
     const wb=XLSX.read(buf,{type:'array',cellStyles:true});
 
     // ── Categories tab ─────────────────────────────────────────────────────
+    // Fixed columns: A=name, B=hex color, C=order (optional integer)
     const catSheet=findSheet(wb,['cat','color','colour','legend','type']);
     if(catSheet){
       const rows=sheetRows(catSheet);
       if(rows.length>1){
-        const headers=rows[0].map(h=>String(h).toLowerCase());
-        const nameIdx=headers.findIndex(h=>h.includes('cat')||h.includes('name')||h.includes('label'));
-        const hexIdx =headers.findIndex(h=>h.includes('hex')||h.includes('color')||h.includes('colour'));
-        if(nameIdx>=0){
-          const newCats=[];
-          for(let i=1;i<rows.length;i++){
-            const r=rows[i];
-            const name=String(r[nameIdx]||'').trim();
-            if(!name) continue;
-            const hex=hexIdx>=0?normaliseHex(r[hexIdx]):null;
-            newCats.push({name,color:hex||FALLBACK_COLORS[newCats.length%FALLBACK_COLORS.length]});
-          }
-          if(newCats.length){categories=newCats;save();}
+        const newCats=[];
+        for(let i=1;i<rows.length;i++){
+          const r=rows[i];
+          const name=String(r[0]||'').trim();
+          if(!name) continue;
+          const hex=normaliseHex(r[1]);
+          const orderRaw=String(r[2]||'').trim();
+          const order=orderRaw!==''&&!isNaN(orderRaw)?parseInt(orderRaw):null;
+          newCats.push({name,color:hex||FALLBACK_COLORS[newCats.length%FALLBACK_COLORS.length],order});
+        }
+        if(newCats.length){
+          const seen=new Set();
+          categories=newCats.filter(c=>{if(seen.has(c.name))return false;seen.add(c.name);return true;});
+          save();
         }
       }
     }
@@ -730,7 +750,7 @@ async function syncFromSheet(){
     toast('Sync failed: '+err.message,'error');
     console.error('Sheet sync error:',err);
   }finally{
-    btn.textContent='🔄 Sync Sheet';btn.disabled=false;
+    btn.textContent='🔄 Sync';btn.disabled=false;
   }
 }
 

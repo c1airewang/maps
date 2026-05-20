@@ -616,9 +616,15 @@ function sheetIdFrom(url){
 // Find a sheet by partial tab name match
 function findSheet(wb, hints){
   for(const h of hints){
-    const name=wb.SheetNames.find(n=>n.toLowerCase().includes(h.toLowerCase()));
-    if(name) return wb.Sheets[name];
+    const name=wb.SheetNames.find(n=>n.toLowerCase()===h.toLowerCase());
+    if(name){console.log('findSheet matched exact:',name,'for hint:',h);return wb.Sheets[name];}
   }
+  // fallback: partial match
+  for(const h of hints){
+    const name=wb.SheetNames.find(n=>n.toLowerCase().includes(h.toLowerCase()));
+    if(name){console.log('findSheet matched partial:',name,'for hint:',h);return wb.Sheets[name];}
+  }
+  console.warn('findSheet: no match for hints',hints,'in sheets',wb.SheetNames);
   return null;
 }
 
@@ -647,7 +653,7 @@ async function syncFromSheet(){
 
     // ── Categories tab ─────────────────────────────────────────────────────
     // Fixed columns: A=name, B=hex color, C=order (optional integer)
-    const catSheet=findSheet(wb,['cat','color','colour','legend','type']);
+    const catSheet=findSheet(wb,['categories','category','colors','colours','legend']);
     if(catSheet){
       const rows=sheetRows(catSheet);
       if(rows.length>1){
@@ -674,7 +680,7 @@ async function syncFromSheet(){
     }
 
     // ── Regions tab ────────────────────────────────────────────────────────
-    const regSheet=findSheet(wb,['region','state','territory','shade']);
+    const regSheet=findSheet(wb,['regions','region','states','state','territory','shade']);
     if(regSheet){
       const rows=sheetRows(regSheet);
       if(rows.length>1){
@@ -710,7 +716,7 @@ async function syncFromSheet(){
     }
 
     // ── Locations tab ──────────────────────────────────────────────────────
-    const locSheet=findSheet(wb,['loc','address','data','company','site','place']);
+    const locSheet=findSheet(wb,['locations','location','addresses','address','data','company','site','place']);
     if(!locSheet){toast('Could not find Locations tab — name it "Locations" or "Addresses"','error');return;}
     const rows=sheetRows(locSheet);
     if(rows.length<2){toast('Locations tab appears empty','error');return;}

@@ -48,12 +48,7 @@
   .legend-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0}
   .legend-swatch{width:14px;height:10px;border-radius:2px;flex-shrink:0;border:1px solid #0002}
   .legend-item.muted{opacity:.35}
-  #modal-overlay{display:none;position:fixed;inset:0;background:#00000088;z-index:2000;align-items:center;justify-content:center}
-  #modal-overlay.show{display:flex}
   .modal{background:#161b27;border:1px solid #2a2f3e;border-radius:10px;padding:24px;width:420px;max-width:95vw;max-height:90vh;overflow-y:auto}
-  .modal h3{font-size:15px;font-weight:600;margin-bottom:6px}
-  .modal p{font-size:13px;color:#9ca3af;margin-bottom:8px}
-  .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
   #toast{position:fixed;bottom:24px;right:24px;background:#22c55e;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:3000;opacity:0;transform:translateY(10px);transition:all .2s;pointer-events:none}
   #toast.show{opacity:1;transform:translateY(0)}
   #toast.error{background:#ef4444}
@@ -76,9 +71,14 @@
 <div id="topbar">
   <h1>📍 Location Map</h1>
   <button class="tb-btn" onclick="openSidebar('list')">☰ List View</button>
-  <button class="tb-btn" id="sync-btn" onclick="syncFromSheet()" style="display:none">🔄 Sync Sheet</button>
-  <div class="spacer"></div>
-  <button class="tb-btn" onclick="openSettings()">⚙ Settings</button>
+  <div id="url-area" style="display:flex;align-items:center;gap:6px;flex:1;max-width:480px;margin:0 8px">
+    <input type="text" id="sheet-url-input" placeholder="Paste Google Sheets URL to get started…"
+      style="flex:1;background:#1e2535;border:1px solid #2a3045;color:#c5c9d6;padding:5px 10px;border-radius:6px;font-size:12px;outline:none;min-width:0"
+      oninput="onUrlInput()" value="">
+    <button id="url-eye" onclick="toggleUrlVisibility()" title="Show/hide URL"
+      style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:15px;padding:2px 4px;flex-shrink:0">👁</button>
+    <button id="sync-btn" class="tb-btn primary" onclick="syncFromSheet()" style="flex-shrink:0">🔄 Sync</button>
+  </div>
 </div>
 
 <div id="map"></div>
@@ -92,13 +92,10 @@
   <div class="sidebar-body" id="sidebar-body"></div>
 </div>
 
-<div id="modal-overlay">
-  <div class="modal" id="modal-content"></div>
-</div>
+
 <div id="toast"></div>
 
 <script>
-const PASS_KEY = 'mapapp_password';
 const SHEET_URL_KEY = 'mapapp_sheet_url';
 const DATA_KEY = 'mapapp_locations';
 const CAT_KEY  = 'mapapp_categories';   // [{name, color}]
@@ -452,7 +449,7 @@ function renderAll(){
 function renderLegend(){
   const el=document.getElementById('legend');
   let html='';
-  const hasPins=categories.some(c=>locations.find(l=>l.category===c.name));
+  const hasPins=locations.length>0;
   const hasRegions=regionCategories.length>0;
   if(!hasPins&&!hasRegions){el.style.display='none';return;}
   el.style.display='block';
@@ -516,27 +513,7 @@ function flyTo(id){
   setTimeout(()=>{if(markers[id])markers[id].openPopup();},1300);closeSidebar();
 }
 
-// ── Settings ──────────────────────────────────────────────────────────────────
-function openSettings(){
-  showModal(`<h3>Settings</h3>
-    <label style="display:block;font-size:12px;color:#9ca3af;margin:10px 0 4px">Google Sheets URL</label>
-    <input type="text" id="s-sheeturl" value="${localStorage.getItem(SHEET_URL_KEY)||''}" placeholder="Paste your Google Sheets URL">
-    <p style="font-size:11px;color:#6b7280;margin-top:4px">Paste the normal URL from your browser address bar. The sheet must be shared: <strong style="color:#9ca3af">Share → Anyone with the link → Viewer</strong>.</p>
-    <label style="display:block;font-size:12px;color:#9ca3af;margin:12px 0 4px">View Password <span style="color:#6b7280">(blank = no restriction)</span></label>
-    <input type="password" id="s-pass" value="${localStorage.getItem(PASS_KEY)||''}" placeholder="Set a password">
-    <div class="modal-actions" style="margin-top:18px">
-      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveSettings()">Save</button>
-    </div>`);
-}
 
-function saveSettings(){
-  const sheetUrl=document.getElementById('s-sheeturl').value.trim();
-  if(sheetUrl)localStorage.setItem(SHEET_URL_KEY,sheetUrl);else localStorage.removeItem(SHEET_URL_KEY);
-  const pass=document.getElementById('s-pass').value;
-  if(pass)localStorage.setItem(PASS_KEY,pass);else localStorage.removeItem(PASS_KEY);
-  closeModal();updateSyncBtn();toast('Settings saved');
-}
 
 
 
@@ -549,9 +526,7 @@ function findCol(fields,candidates){
   for(const c of candidates){const f=fields.find(f=>f.toLowerCase().includes(c));if(f)return f;}
   return null;
 }
-function showModal(html){document.getElementById('modal-content').innerHTML=html;document.getElementById('modal-overlay').classList.add('show');}
-function closeModal(){document.getElementById('modal-overlay').classList.remove('show');}
-document.getElementById('modal-overlay').addEventListener('click',e=>{if(e.target===document.getElementById('modal-overlay'))closeModal();});
+
 let toastTimer;
 function toast(msg,type){
   const t=document.getElementById('toast');t.textContent=msg;
@@ -560,9 +535,28 @@ function toast(msg,type){
 }
 
 // ── Google Sheet sync (fetches as XLSX, all tabs in one request) ─────────────
-function updateSyncBtn(){
-  const url=localStorage.getItem(SHEET_URL_KEY)||'';
-  document.getElementById('sync-btn').style.display=url?'flex':'none';
+function initUrlBar(){
+  const saved=localStorage.getItem(SHEET_URL_KEY)||'';
+  const input=document.getElementById('sheet-url-input');
+  if(saved){
+    input.value=saved;
+    input.type='password'; // hidden by default when populated
+    document.getElementById('url-eye').textContent='👁';
+  }
+  document.getElementById('sync-btn').style.display=saved?'flex':'none';
+}
+
+function onUrlInput(){
+  const val=document.getElementById('sheet-url-input').value.trim();
+  document.getElementById('sync-btn').style.display=val?'flex':'none';
+  localStorage.setItem(SHEET_URL_KEY,val);
+}
+
+function toggleUrlVisibility(){
+  const input=document.getElementById('sheet-url-input');
+  const eye=document.getElementById('url-eye');
+  if(input.type==='password'){input.type='text';eye.textContent='🙈';}
+  else{input.type='password';eye.textContent='👁';}
 }
 
 function normaliseHex(val){
@@ -595,7 +589,7 @@ function sheetRows(sheet){
 }
 
 async function syncFromSheet(){
-  const rawUrl=(localStorage.getItem(SHEET_URL_KEY)||'').trim();
+  const rawUrl=(document.getElementById('sheet-url-input').value||localStorage.getItem(SHEET_URL_KEY)||'').trim();
   if(!rawUrl){toast('No Google Sheet URL set — go to Settings','error');return;}
 
   const sheetId=sheetIdFrom(rawUrl);
@@ -734,7 +728,7 @@ async function syncFromSheet(){
 
 
 renderAll();
-updateSyncBtn();
+initUrlBar();
 </script>
 </body>
 </html>

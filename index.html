@@ -679,15 +679,8 @@ async function syncFromSheet(){
     const rows=sheetRows(locSheet);
     if(rows.length<2){toast('Locations tab appears empty','error');return;}
 
-    const headers=rows[0].map(h=>String(h).toLowerCase());
-    const nameIdx=headers.findIndex(h=>h.includes('name')||h.includes('company'));
-    const addrIdx=headers.findIndex(h=>h.includes('address')||h.includes('addr'));
-    const webIdx =headers.findIndex(h=>h.includes('website')||h.includes('url')||h.includes('web'));
-    const catIdx =headers.findIndex(h=>h.includes('category')||h.includes('type')||h.includes('cat'));
-    const latIdx =headers.findIndex(h=>String(h).trim()==='lat'||String(h).trim()==='latitude');
-    const lngIdx =headers.findIndex(h=>String(h).trim()==='lng'||String(h).trim()==='lon'||String(h).trim()==='longitude');
-
-    if(nameIdx<0||addrIdx<0){toast('Locations tab needs name/company and address columns','error');return;}
+    // Fixed column order: Name, Address, Website, Category, Lat, Lng
+    const nameIdx=0, addrIdx=1, webIdx=2, catIdx=3, latIdx=4, lngIdx=5;
 
     Object.values(markers).forEach(m=>m.remove());
     markers={};locations=[];
@@ -708,7 +701,7 @@ async function syncFromSheet(){
           await new Promise(r=>setTimeout(r,1100));
         }catch{lat=null;lng=null;failed++;}
       }
-      const cat=catIdx>=0?String(row[catIdx]||'').trim():'';
+      const cat=String(row[catIdx]||'').trim();
       if(cat&&!categories.find(c=>c.name===cat))
         categories.push({name:cat,color:FALLBACK_COLORS[categories.length%FALLBACK_COLORS.length]});
       locations.push({
@@ -720,6 +713,13 @@ async function syncFromSheet(){
       });
       added++;
     }
+    // Final dedupe of categories by name (case-insensitive), keep first occurrence
+    const seenCats=new Set();
+    categories=categories.filter(c=>{
+      const key=c.name.toLowerCase().trim();
+      if(seenCats.has(key)) return false;
+      seenCats.add(key);return true;
+    });
     save();renderAll();
     const parts=[`Synced ${added} locations`];
     if(geocoded) parts.push(`geocoded ${geocoded}`);

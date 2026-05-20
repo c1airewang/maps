@@ -29,14 +29,11 @@
   input[type=text],input[type=url],input[type=password],select,textarea{width:100%;background:#1e2535;border:1px solid #2a3045;color:#e8eaf0;padding:7px 10px;border-radius:6px;font-size:13px;outline:none;transition:border .15s}
   input:focus,select:focus,textarea:focus{border-color:#2563eb}
   textarea{resize:vertical;min-height:60px}
-  .form-actions{display:flex;gap:8px;margin-top:16px}
   .btn{padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid transparent;transition:background .15s}
   .btn-primary{background:#2563eb;color:#fff;border-color:#3b7af8}
   .btn-primary:hover{background:#1d55d4}
   .btn-secondary{background:#1e2535;color:#c5c9d6;border-color:#2a3045}
   .btn-secondary:hover{background:#252d40}
-  .btn-danger{background:transparent;color:#f87171;border-color:#7f1d1d}
-  .btn-danger:hover{background:#7f1d1d22}
   #pin-list{list-style:none;margin-top:4px}
   .pin-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;transition:background .15s}
   .pin-item:hover{background:#1e2535}
@@ -69,33 +66,17 @@
   .popup-cat{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;margin-bottom:8px}
   .popup-link{display:block;font-size:12px;color:#60a5fa;word-break:break-all}
   .popup-link:hover{color:#93c5fd}
-  .popup-actions{display:flex;gap:6px;margin-top:10px;border-top:1px solid #2a2f3e;padding-top:8px}
-  .popup-btn{background:#1e2535;border:1px solid #2a3045;color:#c5c9d6;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer}
-  .popup-btn:hover{background:#252d40}
-  .popup-btn.red{color:#f87171;border-color:#7f1d1d}
-  .popup-btn.red:hover{background:#7f1d1d33}
   .state-popup-name{font-size:13px;font-weight:600;margin-bottom:4px;color:#e8eaf0}
   .state-popup-cat{font-size:12px;color:#9ca3af}
   /* Excel format guide */
-  .sheet-guide{background:#1a2030;border:1px solid #2a3045;border-radius:6px;padding:12px 14px;margin:10px 0;font-size:12px;line-height:1.7}
-  .sheet-guide strong{color:#c5c9d6;display:block;margin-bottom:4px}
-  .sheet-guide code{background:#0d1117;color:#7dd3fc;padding:1px 5px;border-radius:3px;font-size:11px}
-  .tab-pill{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-right:4px}
 </style>
 </head>
 <body>
 
 <div id="topbar">
   <h1>📍 Location Map</h1>
-  <button class="tb-btn primary" onclick="openSidebar('add')">+ Add Location</button>
   <button class="tb-btn" onclick="openSidebar('list')">☰ List View</button>
-  <label class="tb-btn" style="margin:0">
-    ⬆ Import Excel
-    <input type="file" accept=".xlsx,.xls" id="xlsx-input" style="display:none" onchange="handleXLSX(event)">
-  </label>
-  <button class="tb-btn" onclick="showFormatGuide()">📋 Format Guide</button>
-  <button class="tb-btn" onclick="exportCSV()">⬇ Export CSV</button>
-  <button class="tb-btn" style="color:#f87171;border-color:#7f1d1d" onclick="confirmClearAll()">🗑 Clear All</button>
+  <button class="tb-btn" id="sync-btn" onclick="syncFromSheet()" style="display:none">🔄 Sync Sheet</button>
   <div class="spacer"></div>
   <button class="tb-btn" onclick="openSettings()">⚙ Settings</button>
 </div>
@@ -105,7 +86,7 @@
 
 <div id="sidebar">
   <div class="sidebar-header">
-    <h2 id="sidebar-title">Add Location</h2>
+    <h2 id="sidebar-title">Locations</h2>
     <button class="close-btn" onclick="closeSidebar()">✕</button>
   </div>
   <div class="sidebar-body" id="sidebar-body"></div>
@@ -118,6 +99,7 @@
 
 <script>
 const PASS_KEY = 'mapapp_password';
+const SHEET_URL_KEY = 'mapapp_sheet_url';
 const DATA_KEY = 'mapapp_locations';
 const CAT_KEY  = 'mapapp_categories';   // [{name, color}]
 const REGIONS_KEY = 'mapapp_regions';   // {stateName: {category, color}}
@@ -132,7 +114,6 @@ let categories     = JSON.parse(localStorage.getItem(CAT_KEY)||'[]');
 if(!categories.length) categories = [{name:'Our Locations',color:'#3b82f6'},{name:'Partners',color:'#22c55e'},{name:'Prospects',color:'#f97316'},{name:'Competitors',color:'#ef4444'}];
 let hiddenCats     = new Set();
 let markers        = {};
-let editingId      = null;
 
 // regions: { stateName -> {category, color} }
 let regions        = JSON.parse(localStorage.getItem(REGIONS_KEY)||'{}');
@@ -199,6 +180,15 @@ function normState(s){
 }
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
+function normaliseHex(val){
+  if(!val) return null;
+  const v=String(val).trim();
+  if(!v) return null;
+  if(v.startsWith('#')&&(v.length===4||v.length===7)) return v.toLowerCase();
+  if(/^[0-9a-fA-F]{6}$/.test(v)) return '#'+v.toLowerCase();
+  if(/^[0-9a-fA-F]{3}$/.test(v)) return '#'+v.toLowerCase();
+  return null;
+}
 function catColor(catName){
   const c=categories.find(c=>c.name===catName);
   return c?c.color:(FALLBACK_COLORS[categories.length%FALLBACK_COLORS.length]);
@@ -294,41 +284,27 @@ function sheetRange(sheet){
 }
 
 // ── Parse Categories sheet ────────────────────────────────────────────────────
-// Layout: Row 1 = header (skipped). Then pairs of rows per category:
-//   Row A: category name in col A (text)
-//   Row B: color swatch cell in col A (fill color read here)
-// Alternatively accept single-row: col A = name, col B = optional hex color text
+// Row 0 = header. Col A = category name, Col B = hex color (e.g. #3b82f6).
+// Col B hex takes priority over cell fill color.
+// If neither present, uses fallback palette.
 function parseCategoriesSheet(sheet){
   const range=sheetRange(sheet);
   const cats=[];
-  let r=1; // skip header row 0
-  while(r<=range.e.r){
+  // Detect if row 0 looks like a header (text, no hex)
+  const firstCell=sheetCell(sheet,0,0);
+  const startRow=firstCell&&firstCell.v&&!String(firstCell.v).startsWith('#')?1:0;
+  for(let r=startRow;r<=range.e.r;r++){
     const nameCell=sheetCell(sheet,0,r);
-    if(!nameCell||!nameCell.v){r++;continue;}
+    if(!nameCell||!nameCell.v) continue;
     const name=String(nameCell.v).trim();
-    if(!name){r++;continue;}
-    // Try to get color from this cell's fill first
-    let color=cellFillColor(nameCell);
-    // If no fill on name cell, check next row same col (the "swatch" row)
-    if(!color&&r+1<=range.e.r){
-      const swatchCell=sheetCell(sheet,0,r+1);
-      const nextVal=swatchCell?String(swatchCell.v||'').trim():'';
-      // If next row's A cell is blank or looks like a color, treat as swatch
-      if(!nextVal||nextVal.startsWith('#')){
-        if(nextVal.startsWith('#')) color=nextVal;
-        else color=cellFillColor(swatchCell);
-        r+=2; // consumed both rows
-      } else {
-        r+=1;
-      }
-    } else {
-      r+=1;
-    }
-    // Check col B for hex text fallback
-    if(!color){
-      const hexCell=sheetCell(sheet,1,r-1)||sheetCell(sheet,1,r-2);
-      if(hexCell&&hexCell.v&&String(hexCell.v).trim().startsWith('#')) color=String(hexCell.v).trim();
-    }
+    if(!name) continue;
+    // Col B: hex text takes top priority
+    const hexCell=sheetCell(sheet,1,r);
+    const hexText=hexCell?String(hexCell.v||'').trim():'';
+    let color=null;
+    if(hexText) color=normaliseHex(hexText);
+    // Fall back to cell fill color
+    if(!color) color=cellFillColor(nameCell)||cellFillColor(hexCell);
     cats.push({name, color: color||FALLBACK_COLORS[cats.length%FALLBACK_COLORS.length]});
   }
   return cats;
@@ -358,14 +334,30 @@ function parseRegionsSheet(sheet){
     // Debug: log raw style for first 10 rows so we can diagnose color issues
     if(r<=10) console.log('Row',r,stateName,'cell.s=',JSON.stringify(stateCell.s));
 
-    // Get fill color — if none, this state has no shading, skip it
-    const catCell=sheetCell(sheet,1,r);
-    const color=cellFillColor(stateCell)||cellFillColor(catCell);
+    // Col B: could be hex color OR category label — detect by content
+    const colBCell=sheetCell(sheet,1,r);
+    const colBVal=colBCell?String(colBCell.v||'').trim():'';
+    const colCCell=sheetCell(sheet,2,r);
+    const colCVal=colCCell?String(colCCell.v||'').trim():'';
+
+    // Priority for color: col B if it looks like a hex, then cell fill, then col C hex
+    let color=null;
+    if(colBVal&&(colBVal.startsWith('#')||/^[0-9a-fA-F]{6}$/.test(colBVal))){
+      color=normaliseHex(colBVal);
+    }
+    if(!color) color=cellFillColor(stateCell);
+    if(!color&&colCVal&&(colCVal.startsWith('#')||/^[0-9a-fA-F]{6}$/.test(colCVal))){
+      color=normaliseHex(colCVal);
+    }
     if(!color){skipped++;continue;}
 
-    // Category: col B text, or reuse an existing cat with same color, or use color as key
+    // Category: if col B was NOT a hex, it's the label; otherwise col C is label
     let catName='';
-    if(catCell&&catCell.v) catName=String(catCell.v).trim();
+    if(colBVal&&!colBVal.startsWith('#')&&!/^[0-9a-fA-F]{6}$/.test(colBVal)){
+      catName=colBVal; // col B = category label
+    } else if(colCVal&&!colCVal.startsWith('#')&&!/^[0-9a-fA-F]{6}$/.test(colCVal)){
+      catName=colCVal; // col C = category label
+    }
     // If no label, group by color so same-colored states share a legend entry
     if(!catName){
       const existing=Object.entries(regionCats).find(([,c])=>c===color);
@@ -379,100 +371,7 @@ function parseRegionsSheet(sheet){
   return{regions:result, regionCats:Object.entries(regionCats).map(([name,color])=>({name,color}))};
 }
 
-// ── Main XLSX import ──────────────────────────────────────────────────────────
-function handleXLSX(e){
-  const file=e.target.files[0];
-  if(!file){return;}
-  requireAuth(async()=>{
-    const buf=await file.arrayBuffer();
-    // cellStyles:true is required to read fill colors
-    const wb=XLSX.read(buf,{type:'array',cellStyles:true});
 
-    // ── Tab 1: Categories & Colors ──
-    const catSheetInfo=readSheet(wb,['cat','color','legend','type']);
-    if(catSheetInfo){
-      const parsed=parseCategoriesSheet(catSheetInfo.sheet);
-      if(parsed.length){
-        categories=parsed;
-        save();
-      }
-    }
-
-    // ── Tab 3: States / Regions ──
-    // Match tab names: "Regions", "States", "Region", "State", "Territory", "Shading"
-    const regionSheetInfo=readSheet(wb,['region','state','territory','shade','shading']);
-    if(regionSheetInfo){
-      const {regions:r,regionCats:rc}=parseRegionsSheet(regionSheetInfo.sheet);
-      if(Object.keys(r).length){
-        regions=r;
-        regionCategories=rc;
-        saveRegions();
-        console.log('Loaded regions from tab:',regionSheetInfo.name,r);
-      } else {
-        console.warn('Regions tab found ("'+regionSheetInfo.name+'") but no colored cells detected. Make sure cells have a solid fill color, not a theme or pattern fill.');
-        toast('Regions tab found but no fill colors detected — see console for details','error');
-      }
-    } else {
-      console.warn('No regions tab found. Tab names in file:', wb.SheetNames);
-    }
-
-    // ── Tab 2: Locations / Addresses ──
-    const locSheetInfo=readSheet(wb,['loc','address','data','company','site','place']);
-    let added=0,geocoded=0,failed=0;
-    if(locSheetInfo){
-      const rows=parseLocationsSheet(locSheetInfo.sheet);
-      const fields=rows.length?Object.keys(rows[0]):[];
-      const nameCol=findCol(fields,['name','company','location','title','org']);
-      const addrCol=findCol(fields,['address','addr','street','location']);
-      const webCol =findCol(fields,['website','url','web','site','link']);
-      const catCol =findCol(fields,['category','type','group','cat','label']);
-      const latCol =findCol(fields,['lat','latitude']);
-      const lngCol =findCol(fields,['lng','lon','longitude']);
-      if(!nameCol||!addrCol){
-        toast('Locations sheet needs name/company and address columns','error');
-      } else {
-        // Clear existing locations and markers before importing fresh
-        Object.values(markers).forEach(m=>m.remove());
-        markers={};
-        locations=[];
-
-        for(const row of rows){
-          const name=String(row[nameCol]||'').trim();
-          const addr=String(row[addrCol]||'').trim();
-          if(!name||!addr) continue;
-          let lat=latCol?parseFloat(row[latCol]):NaN;
-          let lng=lngCol?parseFloat(row[lngCol]):NaN;
-          if(isNaN(lat)||isNaN(lng)){
-            try{
-              const res=await geocodeAddr(addr);
-              if(res){lat=res.lat;lng=res.lng;geocoded++;}
-              else{lat=null;lng=null;failed++;}
-              await new Promise(r=>setTimeout(r,1100));
-            }catch{lat=null;lng=null;failed++;}
-          }
-          const cat=catCol?String(row[catCol]||'').trim():'';
-          if(cat&&!categories.find(c=>c.name===cat))
-            categories.push({name:cat,color:FALLBACK_COLORS[categories.length%FALLBACK_COLORS.length]});
-          locations.push({
-            id:Date.now().toString(36)+Math.random().toString(36).slice(2),
-            name, address:addr,
-            website:webCol?String(row[webCol]||'').trim():'',
-            category:cat||categories[0]?.name||'Uncategorized',
-            lat:lat||null, lng:lng||null
-          });
-          added++;
-        }
-      }
-    }
-
-    save();renderAll();renderStateLayer();
-    const parts=[`Imported ${added} locations`];
-    if(geocoded) parts.push(`geocoded ${geocoded}`);
-    if(failed) parts.push(`${failed} geocode failed`);
-    toast(parts.join(', '),failed?'error':null);
-  });
-  e.target.value='';
-}
 
 // ── Geocoding (Nominatim) ─────────────────────────────────────────────────────
 async function geocodeAddr(addr){
@@ -531,10 +430,7 @@ function renderMarker(loc){
     <div class="popup-name">${loc.name}</div>
     <div class="popup-addr">${loc.address}</div>
     <span class="popup-cat" style="${cs}">${loc.category||'Uncategorized'}</span><br>${web}
-    <div class="popup-actions">
-      <button class="popup-btn" onclick="editLoc('${loc.id}')">Edit</button>
-      <button class="popup-btn red" onclick="confirmDelete('${loc.id}')">Delete</button>
-    </div></div>`);
+    </div>`);
   markers[loc.id]=m;
   applyVisibility();
 }
@@ -593,87 +489,15 @@ function save(){
   localStorage.setItem(CAT_KEY,JSON.stringify(categories));
 }
 
-function openSidebar(mode,id){
+function openSidebar(mode){
   document.getElementById('sidebar').classList.add('open');
-  if(mode==='add') renderAddForm();
-  else if(mode==='list') renderList();
-  else if(mode==='edit'&&id) renderEditForm(id);
+  if(mode==='list') renderList();
 }
 function closeSidebar(){document.getElementById('sidebar').classList.remove('open');}
 
-function requireAuth(cb){
-  const pass=localStorage.getItem(PASS_KEY);
-  if(!pass){cb();return;}
-  showModal(`<h3>Enter password</h3><p>This action requires the editor password.</p>
-    <label>Password</label><input type="password" id="auth-pass" placeholder="Password">
-    <div class="modal-actions">
-      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="checkAuth()">Confirm</button>
-    </div>`);
-  window._authCb=cb;
-}
-function checkAuth(){
-  if(document.getElementById('auth-pass').value===localStorage.getItem(PASS_KEY)){closeModal();window._authCb&&window._authCb();}
-  else toast('Incorrect password','error');
-}
 
-function addFormHTML(d){
-  const catOpts=categories.map(c=>`<option value="${c.name}" ${d.category===c.name?'selected':''}>${c.name}</option>`).join('');
-  return `
-    <label>Company / Location Name *</label><input type="text" id="f-name" value="${d.name||''}">
-    <label>Address *</label><textarea id="f-addr">${d.address||''}</textarea>
-    <button class="btn btn-secondary" style="margin-top:6px;font-size:12px;padding:5px 10px" onclick="geocodeForm()">🔍 Geocode address</button>
-    <div id="geocode-status"></div>
-    <label>Website</label><input type="url" id="f-web" value="${d.website||''}" placeholder="https://">
-    <label>Category</label><select id="f-cat">${catOpts}</select>
-    <div class="form-actions">
-      <button class="btn btn-primary" onclick="submitForm()">${editingId?'Save Changes':'Add Pin'}</button>
-      <button class="btn btn-secondary" onclick="closeSidebar()">Cancel</button>
-      ${editingId?`<button class="btn btn-danger" onclick="confirmDelete('${editingId}')">Delete</button>`:''}
-    </div>
-    <input type="hidden" id="f-lat" value="${d.lat||''}"><input type="hidden" id="f-lng" value="${d.lng||''}">`;
-}
-function renderAddForm(p){document.getElementById('sidebar-title').textContent='Add Location';editingId=null;document.getElementById('sidebar-body').innerHTML=addFormHTML(p||{});}
-function renderEditForm(id){const l=locations.find(l=>l.id===id);if(!l)return;document.getElementById('sidebar-title').textContent='Edit Location';editingId=id;document.getElementById('sidebar-body').innerHTML=addFormHTML(l);}
 
-async function geocodeForm(){
-  const addr=document.getElementById('f-addr').value.trim();
-  if(!addr){toast('Enter an address first','error');return;}
-  const st=document.getElementById('geocode-status');
-  st.textContent='Geocoding…';st.style.color='#6b7280';
-  try{
-    const r=await geocodeAddr(addr);
-    if(r){document.getElementById('f-lat').value=r.lat;document.getElementById('f-lng').value=r.lng;st.textContent='✓ '+r.display;st.style.color='#22c55e';}
-    else{st.textContent='Not found. Try adding city/state/zip.';st.style.color='#ef4444';}
-  }catch{st.textContent='Geocode error. Check connection.';st.style.color='#ef4444';}
-}
 
-function submitForm(){
-  requireAuth(()=>{
-    const name=document.getElementById('f-name').value.trim();
-    const addr=document.getElementById('f-addr').value.trim();
-    const web=document.getElementById('f-web').value.trim();
-    const cat=document.getElementById('f-cat').value;
-    const lat=parseFloat(document.getElementById('f-lat').value)||null;
-    const lng=parseFloat(document.getElementById('f-lng').value)||null;
-    if(!name||!addr){toast('Name and address are required','error');return;}
-    if(!lat||!lng){toast('Geocode the address first','error');return;}
-    if(editingId){const i=locations.findIndex(l=>l.id===editingId);locations[i]={id:editingId,name,address:addr,website:web,category:cat,lat,lng};}
-    else locations.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2),name,address:addr,website:web,category:cat,lat,lng});
-    save();renderAll();closeSidebar();toast(editingId?'Location updated':'Location added');
-  });
-}
-function editLoc(id){requireAuth(()=>openSidebar('edit',id));}
-function confirmDelete(id){
-  const loc=locations.find(l=>l.id===id);if(!loc)return;
-  requireAuth(()=>showModal(`<h3>Delete location?</h3><p>Remove <strong style="color:#e8eaf0">${loc.name}</strong>?</p>
-    <div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-    <button class="btn btn-danger" onclick="deleteLoc('${id}')">Delete</button></div>`));
-}
-function deleteLoc(id){
-  closeModal();if(markers[id]){markers[id].remove();delete markers[id];}
-  locations=locations.filter(l=>l.id!==id);save();renderAll();closeSidebar();toast('Location deleted');
-}
 
 function renderList(){
   document.getElementById('sidebar-title').textContent='All Locations';
@@ -692,95 +516,29 @@ function flyTo(id){
 // ── Settings ──────────────────────────────────────────────────────────────────
 function openSettings(){
   showModal(`<h3>Settings</h3>
-    <p style="font-size:11px;color:#6b7280">Geocoding uses OpenStreetMap Nominatim — free, no API key needed.</p>
-    <label style="display:block;font-size:12px;color:#9ca3af;margin:12px 0 4px">Editor Password <span style="color:#6b7280">(blank = no auth)</span></label>
+    <label style="display:block;font-size:12px;color:#9ca3af;margin:10px 0 4px">Google Sheets URL</label>
+    <input type="text" id="s-sheeturl" value="${localStorage.getItem(SHEET_URL_KEY)||''}" placeholder="Paste your Google Sheets URL">
+    <p style="font-size:11px;color:#6b7280;margin-top:4px">Paste the normal URL from your browser address bar. The sheet must be shared: <strong style="color:#9ca3af">Share → Anyone with the link → Viewer</strong>.</p>
+    <label style="display:block;font-size:12px;color:#9ca3af;margin:12px 0 4px">View Password <span style="color:#6b7280">(blank = no restriction)</span></label>
     <input type="password" id="s-pass" value="${localStorage.getItem(PASS_KEY)||''}" placeholder="Set a password">
-    <div class="section-title" style="margin-top:16px">Location Categories</div>
-    <p style="font-size:11px;color:#6b7280;margin-bottom:8px">These are loaded from your Excel file. You can also edit them here.</p>
-    <div id="s-cats">${categories.map((c,i)=>`
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-        <input type="color" value="${c.color}" data-cat-color="${i}" style="width:28px;height:28px;padding:1px;border-radius:4px;border:1px solid #2a3045;background:#1e2535;cursor:pointer">
-        <input type="text" value="${c.name}" data-cat="${i}" style="flex:1;font-size:12px;padding:5px 8px">
-        <button onclick="removeCat(${i})" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:14px">✕</button>
-      </div>`).join('')}</div>
-    <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;margin-top:4px" onclick="addCat()">+ Add Category</button>
-    ${Object.keys(regions).length?`<div class="section-title" style="margin-top:18px">Regions</div>
-      <button class="btn btn-danger" style="font-size:12px;padding:5px 10px" onclick="clearRegions();closeModal()">Clear all regions</button>`:''}
     <div class="modal-actions" style="margin-top:18px">
       <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveSettings()">Save</button>
     </div>`);
 }
-function addCat(){
-  const div=document.getElementById('s-cats');const i=div.querySelectorAll('[data-cat]').length;
-  const d=document.createElement('div');d.style.cssText='display:flex;align-items:center;gap:6px;margin-bottom:6px';
-  d.innerHTML=`<input type="color" value="${FALLBACK_COLORS[i%FALLBACK_COLORS.length]}" data-cat-color="new${i}" style="width:28px;height:28px;padding:1px;border-radius:4px;border:1px solid #2a3045;background:#1e2535;cursor:pointer">
-    <input type="text" value="New Category" data-cat="new${i}" style="flex:1;font-size:12px;padding:5px 8px">
-    <button onclick="this.parentElement.remove()" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:14px">✕</button>`;
-  div.appendChild(d);
-}
-function removeCat(idx){document.querySelector(`[data-cat="${idx}"]`)?.closest('div').remove();}
+
 function saveSettings(){
+  const sheetUrl=document.getElementById('s-sheeturl').value.trim();
+  if(sheetUrl)localStorage.setItem(SHEET_URL_KEY,sheetUrl);else localStorage.removeItem(SHEET_URL_KEY);
   const pass=document.getElementById('s-pass').value;
   if(pass)localStorage.setItem(PASS_KEY,pass);else localStorage.removeItem(PASS_KEY);
-  const rows=[...document.querySelectorAll('#s-cats [data-cat]')];
-  categories=rows.map((inp,i)=>{
-    const colorInp=inp.closest('div').querySelector('[data-cat-color]');
-    return{name:inp.value.trim(),color:colorInp?colorInp.value:FALLBACK_COLORS[i%FALLBACK_COLORS.length]};
-  }).filter(c=>c.name);
-  save();renderAll();closeModal();toast('Settings saved');
-}
-function clearRegions(){regions={};regionCategories=[];hiddenRegionCats=new Set();saveRegions();renderStateLayer();renderLegend();toast('Regions cleared');}
-
-// ── Export ────────────────────────────────────────────────────────────────────
-function exportCSV(){
-  const rows=locations.map(l=>({name:l.name,address:l.address,website:l.website,category:l.category,lat:l.lat||'',lng:l.lng||''}));
-  const csv=rows.map(r=>Object.values(r).map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const header='name,address,website,category,lat,lng\n';
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob([header+csv],{type:'text/csv'}));
-  a.download='locations.csv';a.click();toast('Exported CSV');
+  closeModal();updateSyncBtn();toast('Settings saved');
 }
 
-// ── Format guide ──────────────────────────────────────────────────────────────
-function showFormatGuide(){
-  showModal(`
-    <h3>Excel Format Guide</h3>
-    <p>Upload a <strong style="color:#c5c9d6">.xlsx file with 3 tabs</strong> in any order:</p>
 
-    <div class="sheet-guide">
-      <strong>Tab 1 — Categories & Colors</strong>
-      Name this tab something like <code>Categories</code> or <code>Colors</code>.<br>
-      Row 1 = header (skipped). Then for each category:<br>
-      • <strong style="color:#c5c9d6">Row A:</strong> Category name in column A<br>
-      • <strong style="color:#c5c9d6">Row B:</strong> Leave column A <em>blank</em> but <strong style="color:#c5c9d6">fill the cell</strong> with your desired color<br>
-      The fill color of Row B becomes the pin color on the map.<br><br>
-      <em>Shortcut:</em> You can also just fill the <em>name cell itself</em> with a color — skip the blank swatch row.
-    </div>
 
-    <div class="sheet-guide">
-      <strong>Tab 2 — Locations</strong>
-      Name this tab something like <code>Locations</code> or <code>Addresses</code>.<br>
-      Row 1 = column headers. Required columns:<br>
-      • <code>name</code> or <code>company</code><br>
-      • <code>address</code><br>
-      Optional: <code>website</code>, <code>category</code>, <code>lat</code>, <code>lng</code><br>
-      If lat/lng are missing, addresses are geocoded automatically.
-    </div>
 
-    <div class="sheet-guide">
-      <strong>Tab 3 — States / Regions</strong>
-      Name this tab something like <code>Regions</code> or <code>States</code>.<br>
-      Row 1 = header (skipped). Columns:<br>
-      • <strong style="color:#c5c9d6">Column A:</strong> State name or abbreviation — <strong style="color:#c5c9d6">fill this cell</strong> with the shading color<br>
-      • <strong style="color:#c5c9d6">Column B:</strong> Category label (e.g. "Target", "Active")<br>
-      The fill color of column A is used as the state shading on the map.
-    </div>
 
-    <div class="modal-actions">
-      <button class="btn btn-primary" onclick="closeModal()">Got it</button>
-    </div>`);
-}
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function findCol(fields,candidates){
@@ -798,25 +556,180 @@ function toast(msg,type){
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>{t.className='';},3500);
 }
 
-function confirmClearAll(){
-  requireAuth(()=>{
-    showModal(`<h3>Clear all locations?</h3>
-      <p>This removes all ${locations.length} pins from the map. This cannot be undone.</p>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-danger" onclick="clearAllLocations()">Clear All</button>
-      </div>`);
-  });
-}
-function clearAllLocations(){
-  closeModal();
-  Object.values(markers).forEach(m=>m.remove());
-  markers={};locations=[];
-  save();renderAll();closeSidebar();
-  toast('All locations cleared');
+// ── Google Sheet sync (fetches as XLSX, all tabs in one request) ─────────────
+function updateSyncBtn(){
+  const url=localStorage.getItem(SHEET_URL_KEY)||'';
+  document.getElementById('sync-btn').style.display=url?'flex':'none';
 }
 
+function normaliseHex(val){
+  if(!val) return null;
+  const v=String(val).trim();
+  if(!v) return null;
+  if(v.startsWith('#')&&(v.length===4||v.length===7)) return v.toLowerCase();
+  if(/^[0-9a-fA-F]{6}$/.test(v)) return '#'+v.toLowerCase();
+  if(/^[0-9a-fA-F]{3}$/.test(v)) return '#'+v.toLowerCase();
+  return null;
+}
+
+function sheetIdFrom(url){
+  const m=url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  return m?m[1]:null;
+}
+
+// Find a sheet by partial tab name match
+function findSheet(wb, hints){
+  for(const h of hints){
+    const name=wb.SheetNames.find(n=>n.toLowerCase().includes(h.toLowerCase()));
+    if(name) return wb.Sheets[name];
+  }
+  return null;
+}
+
+// sheet_to_json but returns plain array of arrays (no header magic)
+function sheetRows(sheet){
+  return XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+}
+
+async function syncFromSheet(){
+  const rawUrl=(localStorage.getItem(SHEET_URL_KEY)||'').trim();
+  if(!rawUrl){toast('No Google Sheet URL set — go to Settings','error');return;}
+
+  const sheetId=sheetIdFrom(rawUrl);
+  if(!sheetId){toast('Could not parse Sheet ID from URL — paste the URL from your browser address bar','error');return;}
+
+  const btn=document.getElementById('sync-btn');
+  btn.textContent='⏳ Syncing…';btn.disabled=true;
+
+  try{
+    // Fetch entire workbook as XLSX in one request
+    const xlsxUrl=`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`;
+    const resp=await fetch(xlsxUrl);
+    if(!resp.ok) throw new Error('HTTP '+resp.status+' — make sure the sheet is shared as "Anyone with the link can view"');
+    const buf=await resp.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array',cellStyles:true});
+
+    // ── Categories tab ─────────────────────────────────────────────────────
+    const catSheet=findSheet(wb,['cat','color','colour','legend','type']);
+    if(catSheet){
+      const rows=sheetRows(catSheet);
+      if(rows.length>1){
+        const headers=rows[0].map(h=>String(h).toLowerCase());
+        const nameIdx=headers.findIndex(h=>h.includes('cat')||h.includes('name')||h.includes('label'));
+        const hexIdx =headers.findIndex(h=>h.includes('hex')||h.includes('color')||h.includes('colour'));
+        if(nameIdx>=0){
+          const newCats=[];
+          for(let i=1;i<rows.length;i++){
+            const r=rows[i];
+            const name=String(r[nameIdx]||'').trim();
+            if(!name) continue;
+            const hex=hexIdx>=0?normaliseHex(r[hexIdx]):null;
+            newCats.push({name,color:hex||FALLBACK_COLORS[newCats.length%FALLBACK_COLORS.length]});
+          }
+          if(newCats.length){categories=newCats;save();}
+        }
+      }
+    }
+
+    // ── Regions tab ────────────────────────────────────────────────────────
+    const regSheet=findSheet(wb,['region','state','territory','shade']);
+    if(regSheet){
+      const rows=sheetRows(regSheet);
+      if(rows.length>1){
+        const headers=rows[0].map(h=>String(h).toLowerCase());
+        const stateIdx=headers.findIndex(h=>h.includes('state')||h.includes('region')||h.includes('name'));
+        const hexIdx  =headers.findIndex(h=>h.includes('hex')||h.includes('color')||h.includes('colour'));
+        const catIdx  =headers.findIndex(h=>h.includes('cat')||h.includes('label')||h.includes('type')||h.includes('group'));
+        if(stateIdx>=0){
+          const newRegions={};const newRegionCats={};
+          for(let i=1;i<rows.length;i++){
+            const r=rows[i];
+            const stateName=normState(String(r[stateIdx]||'').trim());
+            if(!stateName) continue;
+            const hex=hexIdx>=0?normaliseHex(r[hexIdx]):null;
+            if(!hex) continue;
+            let catName=catIdx>=0?String(r[catIdx]||'').trim():'';
+            if(!catName){
+              const existing=Object.entries(newRegionCats).find(([,c])=>c===hex);
+              catName=existing?existing[0]:'Region '+(Object.keys(newRegionCats).length+1);
+            }
+            newRegions[stateName]={category:catName,color:hex};
+            if(!newRegionCats[catName]) newRegionCats[catName]=hex;
+          }
+          if(Object.keys(newRegions).length){
+            regions=newRegions;
+            regionCategories=Object.entries(newRegionCats).map(([name,color])=>({name,color}));
+            saveRegions();renderStateLayer();
+          }
+        }
+      }
+    }
+
+    // ── Locations tab ──────────────────────────────────────────────────────
+    const locSheet=findSheet(wb,['loc','address','data','company','site','place']);
+    if(!locSheet){toast('Could not find Locations tab — name it "Locations" or "Addresses"','error');return;}
+    const rows=sheetRows(locSheet);
+    if(rows.length<2){toast('Locations tab appears empty','error');return;}
+
+    const headers=rows[0].map(h=>String(h).toLowerCase());
+    const nameIdx=headers.findIndex(h=>h.includes('name')||h.includes('company'));
+    const addrIdx=headers.findIndex(h=>h.includes('address')||h.includes('addr'));
+    const webIdx =headers.findIndex(h=>h.includes('website')||h.includes('url')||h.includes('web'));
+    const catIdx =headers.findIndex(h=>h.includes('category')||h.includes('type')||h.includes('cat'));
+    const latIdx =headers.findIndex(h=>String(h).trim()==='lat'||String(h).trim()==='latitude');
+    const lngIdx =headers.findIndex(h=>String(h).trim()==='lng'||String(h).trim()==='lon'||String(h).trim()==='longitude');
+
+    if(nameIdx<0||addrIdx<0){toast('Locations tab needs name/company and address columns','error');return;}
+
+    Object.values(markers).forEach(m=>m.remove());
+    markers={};locations=[];
+
+    let added=0,geocoded=0,failed=0;
+    for(let i=1;i<rows.length;i++){
+      const row=rows[i];
+      const name=String(row[nameIdx]||'').trim();
+      const addr=String(row[addrIdx]||'').trim();
+      if(!name||!addr) continue;
+      let lat=latIdx>=0?parseFloat(row[latIdx]):NaN;
+      let lng=lngIdx>=0?parseFloat(row[lngIdx]):NaN;
+      if(isNaN(lat)||isNaN(lng)){
+        try{
+          const res=await geocodeAddr(addr);
+          if(res){lat=res.lat;lng=res.lng;geocoded++;}
+          else{lat=null;lng=null;failed++;}
+          await new Promise(r=>setTimeout(r,1100));
+        }catch{lat=null;lng=null;failed++;}
+      }
+      const cat=catIdx>=0?String(row[catIdx]||'').trim():'';
+      if(cat&&!categories.find(c=>c.name===cat))
+        categories.push({name:cat,color:FALLBACK_COLORS[categories.length%FALLBACK_COLORS.length]});
+      locations.push({
+        id:Date.now().toString(36)+Math.random().toString(36).slice(2),
+        name,address:addr,
+        website:webIdx>=0?String(row[webIdx]||'').trim():'',
+        category:cat||categories[0]?.name||'Uncategorized',
+        lat:lat||null,lng:lng||null
+      });
+      added++;
+    }
+    save();renderAll();
+    const parts=[`Synced ${added} locations`];
+    if(geocoded) parts.push(`geocoded ${geocoded}`);
+    if(failed) parts.push(`${failed} failed`);
+    toast(parts.join(', '),failed?'error':null);
+
+  }catch(err){
+    toast('Sync failed: '+err.message,'error');
+    console.error('Sheet sync error:',err);
+  }finally{
+    btn.textContent='🔄 Sync Sheet';btn.disabled=false;
+  }
+}
+
+
+
 renderAll();
+updateSyncBtn();
 </script>
 </body>
 </html>

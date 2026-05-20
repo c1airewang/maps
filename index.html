@@ -390,16 +390,16 @@ function renderStateLayer(){
   stateLayerGroup.clearLayers();stateLayerMap={};
   if(!statesGeoJSON||!Object.keys(regions).length) return;
   L.geoJSON(statesGeoJSON,{
-    filter:f=>{const n=FIPS[String(f.properties.id).padStart(2,'0')];return n&&regions[n];},
+    filter:f=>{const n=f.properties.name;return n&&regions[n];},
     style:f=>{
-      const n=FIPS[String(f.properties.id).padStart(2,'0')];
+      const n=f.properties.name;
       const cat=regions[n]?.category;
       const color=regionColor(n);
       const vis=!hiddenRegionCats.has(cat);
       return{fillColor:color,fillOpacity:vis?.28:0,color:vis?color:'transparent',weight:vis?1.5:0,opacity:vis?.7:0};
     },
     onEachFeature:(f,layer)=>{
-      const n=FIPS[String(f.properties.id).padStart(2,'0')];
+      const n=f.properties.name;
       const cat=regions[n]?.category;
       const color=regionColor(n);
       stateLayerMap[n]=layer;

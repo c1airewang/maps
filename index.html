@@ -712,10 +712,9 @@ function showPinsInRadius(sourceLoc){
   });
   setGlow(inside.map(l=>l.id));
 
-  // Fit map to circle bounds
-  const radiusMeters=radiusMiles*1609.34;
-  const circleBounds=L.circle([sourceLoc.lat,sourceLoc.lng],{radius:radiusMeters}).getBounds();
-  map.fitBounds(circleBounds,{padding:[40,40]});
+  // Fit map to circle bounds using the already rendered circle
+  const activeCircle=circleLayerMap[sourceLoc.id];
+  if(activeCircle) map.fitBounds(activeCircle.getBounds(),{padding:[40,40]});
 
   // Build sidebar list
   const catOrder=sortedCategories().map(c=>c.name);

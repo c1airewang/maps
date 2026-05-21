@@ -63,6 +63,13 @@
   .popup-link:hover{color:#93c5fd}
   .state-popup-name{font-size:13px;font-weight:600;margin-bottom:4px;color:#e8eaf0}
   .state-popup-cat{font-size:12px;color:#9ca3af}
+  @keyframes pin-bounce{
+    0%,100%{transform:translateY(0)}
+    30%{transform:translateY(-10px)}
+    60%{transform:translateY(-5px)}
+    80%{transform:translateY(-8px)}
+  }
+  .pin-bouncing{animation:pin-bounce .7s ease infinite}
   /* Excel format guide */
 </style>
 </head>
@@ -435,7 +442,32 @@ function makeIcon(color, glow=false){
   return L.divIcon({html:svg,className:'',iconSize:[36,44],iconAnchor:[18,44],popupAnchor:[0,-46]});
 }
 
-let glowingIds = new Set(); // track which pins are currently glowing
+let glowingIds   = new Set();
+let bouncingId   = null; // currently bouncing pin id
+
+function bouncePin(id){
+  // Stop previous bounce
+  if(bouncingId&&bouncingId!==id){
+    const el=document.querySelector(`.leaflet-marker-icon[data-id="${bouncingId}"]`);
+    if(el) el.classList.remove('pin-bouncing');
+  }
+  bouncingId=id;
+  // Find the marker's DOM element — Leaflet doesn't expose it directly,
+  // so we tag it via a wrapper div
+  if(id){
+    setTimeout(()=>{
+      const marker=markers[id];
+      if(marker&&marker._icon) marker._icon.classList.add('pin-bouncing');
+    },50);
+  }
+}
+function stopBounce(){
+  if(bouncingId){
+    const marker=markers[bouncingId];
+    if(marker&&marker._icon) marker._icon.classList.remove('pin-bouncing');
+    bouncingId=null;
+  }
+}
 
 function setGlow(ids){
   // Clear previous glow
@@ -524,7 +556,10 @@ function showPinsInRadius(sourceLoc){
   const items=sorted.map(l=>{
     const dist=distanceMiles(sourceLoc.lat,sourceLoc.lng,l.lat,l.lng).toFixed(1);
     const c=catColor(l.category);
-    return `<li class="pin-item" onclick="flyTo('${l.id}')">
+    return `<li class="pin-item"
+      onmouseenter="bouncePin('${l.id}')"
+      onmouseleave="stopBounce()"
+      onclick="flyToFromRadius('${l.id}','${sourceLoc.id}')">
       <span class="pin-dot" style="background:${c}"></span>
       <span class="pin-name">${l.name}</span>
       <span class="pin-cat" style="color:#9ca3af">${dist} mi</span>
@@ -671,16 +706,37 @@ function renderList(){
     if(ai!==bi) return (ai<0?999:ai)-(bi<0?999:bi);
     return a.name.localeCompare(b.name);
   });
-  const items=sorted.map(l=>`<li class="pin-item" onclick="flyTo('${l.id}')">
+  const items=sorted.map(l=>`<li class="pin-item"
+    onmouseenter="bouncePin('${l.id}')"
+    onmouseleave="stopBounce()"
+    onclick="flyTo('${l.id}')">
     <span class="pin-dot" style="background:${catColor(l.category)}"></span>
     <span class="pin-name">${l.name}</span><span class="pin-cat">${l.category||''}</span></li>`).join('');
   document.getElementById('sidebar-body').innerHTML=`<div style="font-size:12px;color:#6b7280;margin-bottom:8px">${locations.length} locations</div>
     <ul id="pin-list">${items||'<li style="color:#6b7280;font-size:13px;padding:10px">No locations yet.</li>'}</ul>`;
 }
 function flyTo(id){
+  stopBounce();
   const loc=locations.find(l=>l.id===id);if(!loc||!loc.lat)return;
   map.flyTo([loc.lat,loc.lng],14,{duration:1.2});
-  setTimeout(()=>{if(markers[id])markers[id].openPopup();},1300);closeSidebar();
+  setTimeout(()=>{if(markers[id])markers[id].openPopup();},1300);
+  closeSidebar();
+}
+
+// Fly to a pin from the radius view, then come back to the radius list
+function flyToFromRadius(id, sourceId){
+  stopBounce();
+  const loc=locations.find(l=>l.id===id);if(!loc||!loc.lat)return;
+  const sourceLoc=locations.find(l=>l.id===sourceId);
+  map.flyTo([loc.lat,loc.lng],14,{duration:1.2});
+  setTimeout(()=>{
+    if(markers[id]) markers[id].openPopup();
+    // When popup closes, reopen the radius sidebar
+    if(sourceLoc){
+      markers[id].once('popupclose',()=>showPinsInRadius(sourceLoc));
+    }
+  },1300);
+  closeSidebar();
 }
 
 

@@ -393,6 +393,39 @@ function parseRegionsSheet(sheet){
 
 
 
+// ── Point-in-polygon (ray casting) ───────────────────────────────────────────
+// Works for both Polygon and MultiPolygon GeoJSON geometries
+function pointInPolygonRing(point, ring){
+  // ring: array of [lng, lat] pairs
+  const [px, py] = point;
+  let inside = false;
+  for(let i=0, j=ring.length-1; i<ring.length; j=i++){
+    const [xi,yi]=ring[i], [xj,yj]=ring[j];
+    if(((yi>py)!==(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi))
+      inside=!inside;
+  }
+  return inside;
+}
+
+function pointInGeoJSONFeature(latlng, feature){
+  const pt=[latlng.lng, latlng.lat]; // GeoJSON is [lng, lat]
+  const geo=feature.geometry;
+  if(!geo) return false;
+  const rings = geo.type==='Polygon' ? [geo.coordinates]
+               : geo.type==='MultiPolygon' ? geo.coordinates
+               : [];
+  for(const poly of rings){
+    // poly[0] = outer ring, poly[1..] = holes
+    if(pointInPolygonRing(pt, poly[0])){
+      // Check not in a hole
+      let inHole=false;
+      for(let h=1;h<poly.length;h++) if(pointInPolygonRing(pt,poly[h])){inHole=true;break;}
+      if(!inHole) return true;
+    }
+  }
+  return false;
+}
+
 // ── Geocoding (Nominatim) ─────────────────────────────────────────────────────
 async function geocodeAddr(addr){
   const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addr)}&format=json&limit=1`,
@@ -403,29 +436,121 @@ async function geocodeAddr(addr){
 }
 
 // ── State layer ───────────────────────────────────────────────────────────────
+let selectedStateName = null; // currently selected state
+
 function renderStateLayer(){
   stateLayerGroup.clearLayers();stateLayerMap={};
-  if(!statesGeoJSON||!Object.keys(regions).length) return;
+  if(!statesGeoJSON) return;
   L.geoJSON(statesGeoJSON,{
-    filter:f=>{const n=f.properties.name;return n&&regions[n];},
+    // Show ALL states — shaded ones get color, unshaded are invisible but still interactive
     style:f=>{
       const n=f.properties.name;
+      const hasRegion=regions[n];
       const cat=regions[n]?.category;
       const color=regionColor(n);
-      const vis=!hiddenRegionCats.has(cat);
-      return{fillColor:color,fillOpacity:vis?.28:0,color:vis?color:'transparent',weight:vis?1.5:0,opacity:vis?.7:0};
+      const vis=hasRegion&&!hiddenRegionCats.has(cat);
+      return{
+        fillColor:vis?color:'transparent',
+        fillOpacity:vis?.28:0,
+        color:vis?color:'transparent',
+        weight:vis?1.5:0,
+        opacity:vis?.7:0,
+        interactive:true
+      };
     },
     onEachFeature:(f,layer)=>{
       const n=f.properties.name;
+      const hasRegion=!!regions[n];
       const cat=regions[n]?.category;
-      const color=regionColor(n);
+      const color=hasRegion?regionColor(n):'#94a3b8';
       stateLayerMap[n]=layer;
-      layer.bindPopup(`<div class="state-popup-name">${n}</div><div class="state-popup-cat">${cat}</div>`);
-      layer.on('mouseover',()=>{if(!hiddenRegionCats.has(cat))layer.setStyle({fillOpacity:.45});});
-      layer.on('mouseout',()=>{if(!hiddenRegionCats.has(cat))layer.setStyle({fillOpacity:.28});});
+
+      layer.on('mouseover',()=>{
+        if(n===selectedStateName) return;
+        if(hasRegion&&!hiddenRegionCats.has(cat))
+          layer.setStyle({fillOpacity:.45});
+        else
+          layer.setStyle({fillColor:'#94a3b8',fillOpacity:.15,color:'#94a3b8',weight:1,opacity:.4});
+      });
+      layer.on('mouseout',()=>{
+        if(n===selectedStateName) return;
+        if(hasRegion&&!hiddenRegionCats.has(cat))
+          layer.setStyle({fillColor:color,fillOpacity:.28,color:color,weight:1.5,opacity:.7});
+        else
+          layer.setStyle({fillColor:'transparent',fillOpacity:0,color:'transparent',weight:0,opacity:0});
+      });
+      layer.on('click',()=>showPinsInState(n, f, layer));
     }
   }).addTo(stateLayerGroup);
   renderLegend();
+}
+
+function showPinsInState(stateName, feature, layer){
+  // Deselect previous
+  if(selectedStateName && stateLayerMap[selectedStateName]){
+    const prev=stateLayerMap[selectedStateName];
+    const prevRegion=regions[selectedStateName];
+    if(prevRegion&&!hiddenRegionCats.has(prevRegion.category))
+      prev.setStyle({fillColor:prevRegion.color,fillOpacity:.28,color:prevRegion.color,weight:1.5,opacity:.7});
+    else
+      prev.setStyle({fillColor:'transparent',fillOpacity:0,color:'transparent',weight:0,opacity:0});
+  }
+  selectedStateName=stateName;
+
+  // Highlight selected state
+  const selColor=regions[stateName]?regionColor(stateName):'#94a3b8';
+  layer.setStyle({fillColor:selColor,fillOpacity:.35,color:selColor,weight:2,opacity:.9});
+
+  // Fit map to state bounds
+  map.fitBounds(layer.getBounds(),{padding:[40,40]});
+
+  // Find all pins within state polygon
+  const inside=locations.filter(l=>{
+    if(!l.lat||!l.lng) return false;
+    return pointInGeoJSONFeature({lat:l.lat,lng:l.lng}, feature);
+  });
+
+  setGlow(inside.map(l=>l.id));
+
+  const catOrder=sortedCategories().map(c=>c.name);
+  const sorted=[...inside].sort((a,b)=>{
+    const ai=catOrder.indexOf(a.category),bi=catOrder.indexOf(b.category);
+    if(ai!==bi) return (ai<0?999:ai)-(bi<0?999:bi);
+    return a.name.localeCompare(b.name);
+  });
+
+  const items=sorted.map(l=>{
+    const c=catColor(l.category);
+    return `<li class="pin-item"
+      onmouseenter="bouncePin('${l.id}')"
+      onmouseleave="stopBounce()"
+      onclick="openPopupInPlace('${l.id}')">
+      <span class="pin-dot" style="background:${c}"></span>
+      <span class="pin-name">${l.name}</span>
+      <span class="pin-cat">${l.category||''}</span>
+    </li>`;
+  }).join('');
+
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebar-title').textContent=stateName;
+  document.getElementById('sidebar-body').innerHTML=`
+    <div style="font-size:12px;color:#6b7280;margin-bottom:10px">${inside.length} location${inside.length!==1?'s':''} in state</div>
+    <ul id="pin-list">${items||'<li style="color:#6b7280;font-size:13px;padding:10px">No locations in this state.</li>'}</ul>
+    <div style="margin-top:12px">
+      <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="clearStateSelection();setGlow([]);renderList()">← All locations</button>
+    </div>`;
+}
+
+function clearStateSelection(){
+  if(selectedStateName&&stateLayerMap[selectedStateName]){
+    const layer=stateLayerMap[selectedStateName];
+    const r=regions[selectedStateName];
+    if(r&&!hiddenRegionCats.has(r.category))
+      layer.setStyle({fillColor:r.color,fillOpacity:.28,color:r.color,weight:1.5,opacity:.7});
+    else
+      layer.setStyle({fillColor:'transparent',fillOpacity:0,color:'transparent',weight:0,opacity:0});
+  }
+  selectedStateName=null;
 }
 
 function saveRegions(){
@@ -542,39 +667,53 @@ function showPinsInRadius(sourceLoc){
     if(!l.lat||!l.lng) return false;
     return distanceMiles(sourceLoc.lat,sourceLoc.lng,l.lat,l.lng)<=radiusMiles;
   });
-  // Glow all pins inside
   setGlow(inside.map(l=>l.id));
-  // Show sidebar list
-  openSidebar('list');
+
+  // Fit map to circle bounds
+  const radiusMeters=radiusMiles*1609.34;
+  const circleBounds=L.circle([sourceLoc.lat,sourceLoc.lng],{radius:radiusMeters}).getBounds();
+  map.fitBounds(circleBounds,{padding:[40,40]});
+
+  // Build sidebar list
   const catOrder=sortedCategories().map(c=>c.name);
   const sorted=[...inside].sort((a,b)=>{
     const ai=catOrder.indexOf(a.category),bi=catOrder.indexOf(b.category);
     if(ai!==bi) return (ai<0?999:ai)-(bi<0?999:bi);
     return a.name.localeCompare(b.name);
   });
-  const color=catColor(sourceLoc.category);
   const items=sorted.map(l=>{
     const dist=distanceMiles(sourceLoc.lat,sourceLoc.lng,l.lat,l.lng).toFixed(1);
     const c=catColor(l.category);
     return `<li class="pin-item"
       onmouseenter="bouncePin('${l.id}')"
       onmouseleave="stopBounce()"
-      onclick="flyToFromRadius('${l.id}','${sourceLoc.id}')">
+      onclick="openPopupInPlace('${l.id}')">
       <span class="pin-dot" style="background:${c}"></span>
       <span class="pin-name">${l.name}</span>
       <span class="pin-cat" style="color:#9ca3af">${dist} mi</span>
     </li>`;
   }).join('');
+
+  // Open sidebar without closing it if already open
+  document.getElementById('sidebar').classList.add('open');
   document.getElementById('sidebar-title').textContent=`Within ${radiusMiles} mi`;
   document.getElementById('sidebar-body').innerHTML=`
     <div style="font-size:12px;color:#6b7280;margin-bottom:4px">
       From: <strong style="color:#c5c9d6">${sourceLoc.name}</strong>
     </div>
     <div style="font-size:12px;color:#6b7280;margin-bottom:10px">${inside.length} location${inside.length!==1?'s':''} found</div>
-    <ul id="pin-list">${items}</ul>
+    <ul id="pin-list">${items||'<li style="color:#6b7280;font-size:13px;padding:10px">No locations in range.</li>'}</ul>
     <div style="margin-top:12px">
-      <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="setGlow([]);renderList()">← Back to all</button>
+      <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="setGlow([]);renderList()">← All locations</button>
     </div>`;
+}
+
+// Open popup on map without moving or closing sidebar
+function openPopupInPlace(id){
+  stopBounce();
+  const loc=locations.find(l=>l.id===id);
+  if(!loc||!markers[id]) return;
+  markers[id].openPopup();
 }
 
 function applyCircleVisibility(){
@@ -612,9 +751,9 @@ function toggleCircles(){
 }
 
 function renderAll(){
-  // Clear old circles and glow
+  // Clear old circles, glow, and state selection
   Object.values(circleLayerMap).forEach(c=>c.remove());
-  circleLayerMap={};glowingIds=new Set();
+  circleLayerMap={};glowingIds=new Set();clearStateSelection();
   locations.forEach(l=>{renderMarker(l);renderCircle(l);});
   renderLegend();
   const sb=document.getElementById('sidebar');
@@ -717,27 +856,9 @@ function renderList(){
 }
 function flyTo(id){
   stopBounce();
-  const loc=locations.find(l=>l.id===id);if(!loc||!loc.lat)return;
-  map.flyTo([loc.lat,loc.lng],14,{duration:1.2});
-  setTimeout(()=>{if(markers[id])markers[id].openPopup();},1300);
-  closeSidebar();
+  openPopupInPlace(id);
 }
 
-// Fly to a pin from the radius view, then come back to the radius list
-function flyToFromRadius(id, sourceId){
-  stopBounce();
-  const loc=locations.find(l=>l.id===id);if(!loc||!loc.lat)return;
-  const sourceLoc=locations.find(l=>l.id===sourceId);
-  map.flyTo([loc.lat,loc.lng],14,{duration:1.2});
-  setTimeout(()=>{
-    if(markers[id]) markers[id].openPopup();
-    // When popup closes, reopen the radius sidebar
-    if(sourceLoc){
-      markers[id].once('popupclose',()=>showPinsInRadius(sourceLoc));
-    }
-  },1300);
-  closeSidebar();
-}
 
 
 

@@ -188,6 +188,8 @@ map.on('mousemove', function(e){
 
 map.on('click', function(e){
   if(!statesGeoJSON) return;
+  // Ignore if click came from a circle or marker (they have their own handlers)
+  if(e.originalEvent._handled) return;
   const hit = statesGeoJSON.features.find(f=>pointInGeoJSONFeature(e.latlng, f));
   if(hit) showPinsInState(hit.properties.name, hit, stateLayerMap[hit.properties.name]);
 });
@@ -693,7 +695,10 @@ function renderCircle(loc){
   }).addTo(map);
   circle.on('mouseover',function(){this.setStyle({fillOpacity:0.18,cursor:'pointer'});});
   circle.on('mouseout',function(){this.setStyle({fillOpacity:circlesVisible?0.08:0});});
-  circle.on('click',()=>showPinsInRadius(loc));
+  circle.on('click',(e)=>{
+    e.originalEvent._handled=true;
+    showPinsInRadius(loc);
+  });
   circleLayerMap[loc.id]=circle;
 }
 

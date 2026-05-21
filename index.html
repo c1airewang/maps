@@ -104,11 +104,8 @@
   <div class="sidebar-header">
     <h2 id="sidebar-title">Locations</h2>
     <div style="display:flex;gap:4px;align-items:center">
-      <button id="export-btn" onclick="exportSidebar()" title="Export current list to CSV"
-        style="background:none;border:1px solid #2a3045;color:#9ca3af;cursor:pointer;font-size:11px;padding:2px 7px;border-radius:4px;display:flex;align-items:center;gap:3px">
-        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        CSV
-      </button>
+      <button onclick="exportSidebar()" title="Export current list to CSV"
+        style="background:none;border:1px solid #2a3045;color:#9ca3af;cursor:pointer;font-size:11px;padding:2px 7px;border-radius:4px;display:flex;align-items:center;gap:3px;line-height:1">&#8595; CSV</button>
       <button id="esc-btn" onclick="escapeSelection()" title="Clear selection (Esc)"
         style="display:none;background:none;border:1px solid #2a3045;color:#9ca3af;cursor:pointer;font-size:11px;padding:2px 7px;border-radius:4px">Esc</button>
       <button class="close-btn" onclick="closeSidebar()">✕</button>
@@ -613,8 +610,8 @@ function makeIcon(color, glow=false){
   return L.divIcon({html,className:'',iconSize:[28,36],iconAnchor:[14,36],popupAnchor:[0,-38]});
 }
 
+let sidebarLocs = [];
 let glowingIds   = new Set();
-let sidebarLocs  = []; // tracks locations currently shown in sidebar
 let bouncingId = null;
 
 function bouncePin(id){
@@ -887,8 +884,8 @@ function closeSidebar(){
 }
 
 function renderList() {
+  sidebarLocs=[...locations];
   document.getElementById('sidebar-title').textContent = 'All Locations';
-  sidebarLocs = [...locations];
   
   // Ensure the top left Esc button is visible if desired, or hidden 
   showEscBtn(); 
@@ -1143,30 +1140,20 @@ document.addEventListener('keydown',e=>{
     else closeSidebar();
   }
 });
+renderAll();
+initUrlBar();
+
 function exportSidebar(){
   if(!sidebarLocs.length){toast('Nothing to export','error');return;}
   const title=document.getElementById('sidebar-title').textContent;
-  const rows=sidebarLocs.map(l=>({
-    name:l.name,
-    address:l.address,
-    website:l.website||'',
-    category:l.category||'',
-    lat:l.lat||'',
-    lng:l.lng||''
-  }));
-  const headers='name,address,website,category,lat,lng';
-  const csv=rows.map(r=>Object.values(r).map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('
-');
+  const csv=sidebarLocs.map(l=>[l.name,l.address,l.website||'',l.category||'',l.lat||'',l.lng||'']
+    .map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
   const filename=(title==='All Locations'?'all-locations':title.toLowerCase().replace(/[^a-z0-9]+/g,'-'))+'.csv';
   const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob([headers+'
-'+csv],{type:'text/csv'}));
+  a.href=URL.createObjectURL(new Blob(['name,address,website,category,lat,lng\n'+csv],{type:'text/csv'}));
   a.download=filename;a.click();
-  toast(`Exported ${rows.length} locations`);
+  toast('Exported '+sidebarLocs.length+' locations');
 }
-
-renderAll();
-initUrlBar();
 </script>
 </body>
 </html>

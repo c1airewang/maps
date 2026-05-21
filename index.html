@@ -574,8 +574,7 @@ function showPinsInState(stateName, feature, layer){
 function escapeSelection(){
   clearStateSelection();
   setGlow([]);
-  renderList();
-  document.getElementById('esc-btn').style.display='none';
+  renderList(); // Let renderList handle the button states completely
 }
 
 function showEscBtn(){ document.getElementById('esc-btn').style.display='inline-block'; }
@@ -869,9 +868,15 @@ function save(){
 
 function openSidebar(mode){
   document.getElementById('sidebar').classList.add('open');
-  if(mode==='list') renderList();
+  if(mode==='list') {
+    renderList();
+  }
 }
-function closeSidebar(){document.getElementById('sidebar').classList.remove('open');}
+
+function closeSidebar(){
+  document.getElementById('sidebar').classList.remove('open');
+  hideEscBtn(); // Keeps the header clean when hidden
+}
 
 function renderList() {
   document.getElementById('sidebar-title').textContent = 'All Locations';
@@ -887,17 +892,15 @@ function renderList() {
     return a.name.localeCompare(b.name);
   });
   
-  const items = sorted.map(l => `<li class="pin-item"
+  const items=sorted.map(l=>`<li class="pin-item"
     onmouseenter="bouncePin('${l.id}')"
     onmouseleave="stopBounce()"
     onclick="flyTo('${l.id}')">
     <span class="pin-dot" style="background:${catColor(l.category)}"></span>
     <span class="pin-name">${l.name}</span><span class="pin-cat">${l.category||''}</span></li>`).join('');
-  
-  // FIX: Make sure we don't accidentally leave state-specific back buttons hanging around
-  document.getElementById('sidebar-body').innerHTML = `
-    <div style="font-size:12px;color:#6b7280;margin-bottom:8px">${locations.length} locations</div>
-    <ul id="pin-list">${items || '<li style="color:#6b7280;font-size:13px;padding:10px">No locations yet.</li>'}</ul>`;
+    
+  document.getElementById('sidebar-body').innerHTML=`<div style="font-size:12px;color:#6b7280;margin-bottom:8px">${locations.length} locations</div>
+    <ul id="pin-list">${items||'<li style="color:#6b7280;font-size:13px;padding:10px">No locations yet.</li>'}</ul>`;
 }
 
 function flyTo(id){

@@ -512,8 +512,6 @@ function showPinsInState(stateName, feature, layer){
   const selColor=regions[stateName]?regionColor(stateName):'#94a3b8';
   layer.setStyle({fillColor:selColor,fillOpacity:.35,color:selColor,weight:2,opacity:.9});
 
-  // Fit map to state bounds
-  map.fitBounds(layer.getBounds(),{padding:[40,40]});
 
   // Find all pins within state polygon
   const inside=locations.filter(l=>{
@@ -583,7 +581,7 @@ function saveRegions(){
 // ── Pin rendering ─────────────────────────────────────────────────────────────
 function makeIcon(color, glow=false){
   // Keep identical size/anchor for both states — glow is CSS only
-  const glowStyle=glow?`filter:drop-shadow(0 0 6px ${color}) drop-shadow(0 0 3px ${color})`:'';
+  const glowStyle=glow?'filter:drop-shadow(0 0 4px white) drop-shadow(0 0 2px white)':'';
   const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36" style="${glowStyle}"><path d="M14 0C6.268 0 0 6.268 0 14c0 9.333 14 22 14 22S28 23.333 28 14C28 6.268 21.732 0 14 0z" fill="${color}"/><circle cx="14" cy="14" r="5" fill="white" opacity="0.9"/></svg>`;
   return L.divIcon({html:svg,className:'',iconSize:[28,36],iconAnchor:[14,36],popupAnchor:[0,-38]});
 }

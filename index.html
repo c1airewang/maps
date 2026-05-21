@@ -884,6 +884,7 @@ function closeSidebar(){document.getElementById('sidebar').classList.remove('ope
 
 function renderList(){
   document.getElementById('sidebar-title').textContent='All Locations';
+  showEscBtn();
   // Group locations by category in sorted order, then alphabetically within each group
   const catOrder=sortedCategories().map(c=>c.name);
   const sorted=[...locations].sort((a,b)=>{

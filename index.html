@@ -495,8 +495,12 @@ function renderCircle(loc){
     fillColor:color,
     fillOpacity:0.08,
     weight:1.5,
-    opacity:0.5
+    opacity:0.5,
+    interactive:true,
+    bubblingMouseEvents:false
   }).addTo(map);
+  circle.on('mouseover',function(){this.setStyle({fillOpacity:0.18,cursor:'pointer'});});
+  circle.on('mouseout',function(){this.setStyle({fillOpacity:circlesVisible?0.08:0});});
   circle.on('click',()=>showPinsInRadius(loc));
   circleLayerMap[loc.id]=circle;
 }

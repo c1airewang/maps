@@ -127,7 +127,7 @@ let regions        = JSON.parse(localStorage.getItem(REGIONS_KEY)||'{}');
 // regionCategories: [{name, color}]
 let regionCategories = JSON.parse(localStorage.getItem(REGION_CATS_KEY)||'[]');
 let hiddenRegionCats = new Set();
-let radiusMiles      = parseFloat(localStorage.getItem('mapapp_radius_miles')||'100');
+let radiusMiles      = parseFloat(localStorage.getItem('mapapp_radius_miles')||'50');
 let circlesVisible   = true;
 let circleLayerMap   = {}; // loc.id -> L.circle
 let stateLayerGroup  = L.layerGroup();
@@ -427,9 +427,34 @@ function saveRegions(){
 }
 
 // ── Pin rendering ─────────────────────────────────────────────────────────────
-function makeIcon(color){
-  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36"><path d="M14 0C6.268 0 0 6.268 0 14c0 9.333 14 22 14 22S28 23.333 28 14C28 6.268 21.732 0 14 0z" fill="${color}"/><circle cx="14" cy="14" r="5" fill="white" opacity="0.9"/></svg>`;
-  return L.divIcon({html:svg,className:'',iconSize:[28,36],iconAnchor:[14,36],popupAnchor:[0,-38]});
+function makeIcon(color, glow=false){
+  const glowFilter=glow?`<defs><filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`:'';
+  const glowAttr=glow?'filter="url(#glow)"':'';
+  const ring=glow?`<circle cx="14" cy="14" r="13" fill="${color}" opacity="0.25"/>`:'';
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="-4 -4 36 44">${glowFilter}${ring}<path d="M14 0C6.268 0 0 6.268 0 14c0 9.333 14 22 14 22S28 23.333 28 14C28 6.268 21.732 0 14 0z" fill="${color}" ${glowAttr}/><circle cx="14" cy="14" r="5" fill="white" opacity="0.9"/></svg>`;
+  return L.divIcon({html:svg,className:'',iconSize:[36,44],iconAnchor:[18,44],popupAnchor:[0,-46]});
+}
+
+let glowingIds = new Set(); // track which pins are currently glowing
+
+function setGlow(ids){
+  // Clear previous glow
+  glowingIds.forEach(id=>{
+    const l=locations.find(l=>l.id===id);
+    if(l&&markers[id]){
+      const color=catColor(l.category);
+      markers[id].setIcon(makeIcon(color,false));
+    }
+  });
+  glowingIds=new Set(ids);
+  // Apply new glow
+  glowingIds.forEach(id=>{
+    const l=locations.find(l=>l.id===id);
+    if(l&&markers[id]){
+      const color=catColor(l.category);
+      markers[id].setIcon(makeIcon(color,true));
+    }
+  });
 }
 
 function renderMarker(loc){
@@ -437,7 +462,9 @@ function renderMarker(loc){
   if(!loc.lat||!loc.lng) return;
   const color=catColor(loc.category);
   const m=L.marker([loc.lat,loc.lng],{icon:makeIcon(color)}).addTo(map);
-  const web=loc.website?`<a href="${loc.website}" target="_blank" class="popup-link">${loc.website}</a>`:'<span style="font-size:12px;color:#6b7280">No website</span>';
+  const rawUrl=loc.website||'';
+  const safeUrl=rawUrl&&!rawUrl.match(/^https?:\/\//)? 'https://'+rawUrl : rawUrl;
+  const web=safeUrl?`<a href="${safeUrl}" target="_blank" class="popup-link">${rawUrl}</a>`:'<span style="font-size:12px;color:#6b7280">No website</span>';
   const cs=`background:${color}22;color:${color};`;
   m.bindPopup(`<div style="min-width:200px">
     <div class="popup-name">${loc.name}</div>
@@ -446,6 +473,15 @@ function renderMarker(loc){
     </div>`);
   markers[loc.id]=m;
   applyVisibility();
+}
+
+// Haversine distance in miles between two lat/lng points
+function distanceMiles(lat1,lng1,lat2,lng2){
+  const R=3958.8; // Earth radius miles
+  const dLat=(lat2-lat1)*Math.PI/180;
+  const dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
 function renderCircle(loc){
@@ -461,7 +497,45 @@ function renderCircle(loc){
     weight:1.5,
     opacity:0.5
   }).addTo(map);
+  circle.on('click',()=>showPinsInRadius(loc));
   circleLayerMap[loc.id]=circle;
+}
+
+function showPinsInRadius(sourceLoc){
+  const inside=locations.filter(l=>{
+    if(!l.lat||!l.lng) return false;
+    return distanceMiles(sourceLoc.lat,sourceLoc.lng,l.lat,l.lng)<=radiusMiles;
+  });
+  // Glow all pins inside
+  setGlow(inside.map(l=>l.id));
+  // Show sidebar list
+  openSidebar('list');
+  const catOrder=sortedCategories().map(c=>c.name);
+  const sorted=[...inside].sort((a,b)=>{
+    const ai=catOrder.indexOf(a.category),bi=catOrder.indexOf(b.category);
+    if(ai!==bi) return (ai<0?999:ai)-(bi<0?999:bi);
+    return a.name.localeCompare(b.name);
+  });
+  const color=catColor(sourceLoc.category);
+  const items=sorted.map(l=>{
+    const dist=distanceMiles(sourceLoc.lat,sourceLoc.lng,l.lat,l.lng).toFixed(1);
+    const c=catColor(l.category);
+    return `<li class="pin-item" onclick="flyTo('${l.id}')">
+      <span class="pin-dot" style="background:${c}"></span>
+      <span class="pin-name">${l.name}</span>
+      <span class="pin-cat" style="color:#9ca3af">${dist} mi</span>
+    </li>`;
+  }).join('');
+  document.getElementById('sidebar-title').textContent=`Within ${radiusMiles} mi`;
+  document.getElementById('sidebar-body').innerHTML=`
+    <div style="font-size:12px;color:#6b7280;margin-bottom:4px">
+      From: <strong style="color:#c5c9d6">${sourceLoc.name}</strong>
+    </div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:10px">${inside.length} location${inside.length!==1?'s':''} found</div>
+    <ul id="pin-list">${items}</ul>
+    <div style="margin-top:12px">
+      <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="setGlow([]);renderList()">← Back to all</button>
+    </div>`;
 }
 
 function applyCircleVisibility(){
@@ -499,9 +573,9 @@ function toggleCircles(){
 }
 
 function renderAll(){
-  // Clear old circles
+  // Clear old circles and glow
   Object.values(circleLayerMap).forEach(c=>c.remove());
-  circleLayerMap={};
+  circleLayerMap={};glowingIds=new Set();
   locations.forEach(l=>{renderMarker(l);renderCircle(l);});
   renderLegend();
   const sb=document.getElementById('sidebar');

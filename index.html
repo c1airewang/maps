@@ -112,7 +112,6 @@
   <div class="sidebar-body" id="sidebar-body"></div>
 </div>
 
-
 <div id="toast"></div>
 
 <script>
@@ -439,8 +438,6 @@ function parseRegionsSheet(sheet){
   return{regions:result, regionCats:Object.entries(regionCats).map(([name,color])=>({name,color}))};
 }
 
-
-
 // ── Point-in-polygon (ray casting) ───────────────────────────────────────────
 // Works for both Polygon and MultiPolygon GeoJSON geometries
 function pointInPolygonRing(point, ring){
@@ -712,8 +709,6 @@ function showPinsInRadius(sourceLoc){
   });
   setGlow(inside.map(l=>l.id));
 
-  
-
   // Build sidebar list
   const catOrder=sortedCategories().map(c=>c.name);
   const sorted=[...inside].sort((a,b)=>{
@@ -878,41 +873,37 @@ function openSidebar(mode){
 }
 function closeSidebar(){document.getElementById('sidebar').classList.remove('open');}
 
-
-
-
-
-function renderList(){
-  document.getElementById('sidebar-title').textContent='All Locations';
-  showEscBtn();
+function renderList() {
+  document.getElementById('sidebar-title').textContent = 'All Locations';
+  
+  // Ensure the top left Esc button is visible if desired, or hidden 
+  showEscBtn(); 
+  
   // Group locations by category in sorted order, then alphabetically within each group
-  const catOrder=sortedCategories().map(c=>c.name);
-  const sorted=[...locations].sort((a,b)=>{
-    const ai=catOrder.indexOf(a.category);const bi=catOrder.indexOf(b.category);
-    if(ai!==bi) return (ai<0?999:ai)-(bi<0?999:bi);
+  const catOrder = sortedCategories().map(c => c.name);
+  const sorted = [...locations].sort((a, b) => {
+    const ai = catOrder.indexOf(a.category); const bi = catOrder.indexOf(b.category);
+    if (ai !== bi) return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
     return a.name.localeCompare(b.name);
   });
-  const items=sorted.map(l=>`<li class="pin-item"
+  
+  const items = sorted.map(l => `<li class="pin-item"
     onmouseenter="bouncePin('${l.id}')"
     onmouseleave="stopBounce()"
     onclick="flyTo('${l.id}')">
     <span class="pin-dot" style="background:${catColor(l.category)}"></span>
     <span class="pin-name">${l.name}</span><span class="pin-cat">${l.category||''}</span></li>`).join('');
-  document.getElementById('sidebar-body').innerHTML=`<div style="font-size:12px;color:#6b7280;margin-bottom:8px">${locations.length} locations</div>
-    <ul id="pin-list">${items||'<li style="color:#6b7280;font-size:13px;padding:10px">No locations yet.</li>'}</ul>`;
+  
+  // FIX: Make sure we don't accidentally leave state-specific back buttons hanging around
+  document.getElementById('sidebar-body').innerHTML = `
+    <div style="font-size:12px;color:#6b7280;margin-bottom:8px">${locations.length} locations</div>
+    <ul id="pin-list">${items || '<li style="color:#6b7280;font-size:13px;padding:10px">No locations yet.</li>'}</ul>`;
 }
+
 function flyTo(id){
   stopBounce();
   openPopupInPlace(id);
 }
-
-
-
-
-
-
-
-
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function findCol(fields,candidates){

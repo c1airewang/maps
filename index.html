@@ -62,6 +62,7 @@
   .popup-link{display:block;font-size:12px;color:#60a5fa;word-break:break-all}
   .popup-link:hover{color:#93c5fd}
   .state-popup-name{font-size:13px;font-weight:600;margin-bottom:4px;color:#e8eaf0}
+  .state-path{pointer-events:auto !important}
   .state-popup-cat{font-size:12px;color:#9ca3af}
   @keyframes pin-bounce{
     0%,100%{transform:translateY(0)}
@@ -155,6 +156,7 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r
 // State layer pane — below circle pane
 map.createPane('statePane');
 map.getPane('statePane').style.zIndex=350;
+map.getPane('statePane').style.pointerEvents='none';
 stateLayerGroup.addTo(map);
 
 // ── US states TopoJSON ────────────────────────────────────────────────────────
@@ -463,10 +465,11 @@ function renderStateLayer(){
       return{
         fillColor:vis?color:'transparent',
         fillOpacity:vis?.28:0,
-        color:vis?color:'transparent',
-        weight:vis?1.5:0,
-        opacity:vis?.7:0,
-        interactive:true
+        color:vis?color:'#94a3b8',
+        weight:.5,
+        opacity:vis?.7:.15,
+        interactive:true,
+        className:'state-path'
       };
     },
     onEachFeature:(f,layer)=>{
@@ -587,23 +590,14 @@ function makeIcon(color, glow=false){
 }
 
 let glowingIds   = new Set();
-let bouncingId   = null; // currently bouncing pin id
+let bouncingId = null;
 
 function bouncePin(id){
-  // Stop previous bounce
-  if(bouncingId&&bouncingId!==id){
-    const el=document.querySelector(`.leaflet-marker-icon[data-id="${bouncingId}"]`);
-    if(el) el.classList.remove('pin-bouncing');
-  }
+  stopBounce(); // always clear previous first
   bouncingId=id;
-  // Find the marker's DOM element — Leaflet doesn't expose it directly,
-  // so we tag it via a wrapper div
-  if(id){
-    setTimeout(()=>{
-      const marker=markers[id];
-      if(marker&&marker._icon) marker._icon.classList.add('pin-bouncing');
-    },50);
-  }
+  if(!id) return;
+  const marker=markers[id];
+  if(marker&&marker._icon) marker._icon.classList.add('pin-bouncing');
 }
 function stopBounce(){
   if(bouncingId){
@@ -611,6 +605,8 @@ function stopBounce(){
     if(marker&&marker._icon) marker._icon.classList.remove('pin-bouncing');
     bouncingId=null;
   }
+  // Belt-and-suspenders: clear any stale bounce classes from all marker icons
+  document.querySelectorAll('.pin-bouncing').forEach(el=>el.classList.remove('pin-bouncing'));
 }
 
 function setGlow(ids){
@@ -774,7 +770,7 @@ function toggleCircles(){
 function renderAll(){
   // Clear old circles, glow, and state selection
   Object.values(circleLayerMap).forEach(c=>c.remove());
-  circleLayerMap={};glowingIds=new Set();clearStateSelection();
+  circleLayerMap={};glowingIds=new Set();clearStateSelection();stopBounce();
   locations.forEach(l=>{renderMarker(l);renderCircle(l);});
   renderLegend();
   const sb=document.getElementById('sidebar');

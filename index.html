@@ -81,6 +81,13 @@
     </button>
     <button id="sync-btn" class="tb-btn primary" onclick="syncFromSheet()" style="flex-shrink:0">🔄 Sync</button>
   </div>
+  <div style="display:flex;align-items:center;gap:5px;margin-left:4px">
+    <span style="font-size:11px;color:#6b7280;white-space:nowrap">Radius (mi)</span>
+    <input type="number" id="radius-input" min="1" max="500" value="50"
+      style="width:58px;background:#1e2535;border:1px solid #2a3045;color:#c5c9d6;padding:5px 7px;border-radius:6px;font-size:12px;outline:none"
+      oninput="onRadiusInput()" title="Circle radius in miles">
+    <button id="radius-toggle" class="tb-btn" onclick="toggleCircles()" title="Show/hide radius circles" style="padding:5px 8px">⊙</button>
+  </div>
 </div>
 
 <div id="map"></div>
@@ -102,7 +109,8 @@ const SHEET_URL_KEY = 'mapapp_sheet_url';
 const DATA_KEY = 'mapapp_locations';
 const CAT_KEY  = 'mapapp_categories';   // [{name, color}]
 const REGIONS_KEY = 'mapapp_regions';   // {stateName: {category, color}}
-const REGION_CATS_KEY = 'mapapp_region_cats'; // [{name, color}]
+const REGION_CATS_KEY = 'mapapp_region_cats';
+const RADIUS_KEY     = 'mapapp_radius_miles'; // [{name, color}]
 
 // Fallback palette if no cell color found
 const FALLBACK_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#8b5cf6','#ec4899','#f43f5e','#06b6d4'];
@@ -119,6 +127,9 @@ let regions        = JSON.parse(localStorage.getItem(REGIONS_KEY)||'{}');
 // regionCategories: [{name, color}]
 let regionCategories = JSON.parse(localStorage.getItem(REGION_CATS_KEY)||'[]');
 let hiddenRegionCats = new Set();
+let radiusMiles      = parseFloat(localStorage.getItem('mapapp_radius_miles')||'50');
+let circlesVisible   = true;
+let circleLayerMap   = {}; // loc.id -> L.circle
 let stateLayerGroup  = L.layerGroup();
 let statesGeoJSON    = null;
 let stateLayerMap    = {};
@@ -437,12 +448,61 @@ function renderMarker(loc){
   applyVisibility();
 }
 
+function renderCircle(loc){
+  if(circleLayerMap[loc.id]){circleLayerMap[loc.id].remove();delete circleLayerMap[loc.id];}
+  if(!loc.showRadius||!loc.lat||!loc.lng) return;
+  const color=catColor(loc.category);
+  const radiusMeters=radiusMiles*1609.34;
+  const circle=L.circle([loc.lat,loc.lng],{
+    radius:radiusMeters,
+    color:color,
+    fillColor:color,
+    fillOpacity:0.08,
+    weight:1.5,
+    opacity:0.5
+  }).addTo(map);
+  circleLayerMap[loc.id]=circle;
+}
+
+function applyCircleVisibility(){
+  Object.values(circleLayerMap).forEach(c=>c.setStyle({opacity:circlesVisible?0.5:0,fillOpacity:circlesVisible?0.08:0}));
+}
+
 function applyVisibility(){
-  locations.forEach(l=>{const m=markers[l.id];if(m)m.setOpacity(hiddenCats.has(l.category)?0:1);});
+  locations.forEach(l=>{
+    const m=markers[l.id];
+    if(m) m.setOpacity(hiddenCats.has(l.category)?0:1);
+    const c=circleLayerMap[l.id];
+    if(c) c.setStyle({
+      opacity:(!circlesVisible||hiddenCats.has(l.category))?0:0.5,
+      fillOpacity:(!circlesVisible||hiddenCats.has(l.category))?0:0.08
+    });
+  });
+}
+
+function onRadiusInput(){
+  const val=parseFloat(document.getElementById('radius-input').value)||50;
+  radiusMiles=val;
+  localStorage.setItem(RADIUS_KEY,val);
+  // Re-render all circles with new radius
+  Object.values(circleLayerMap).forEach(c=>c.remove());
+  circleLayerMap={};
+  locations.forEach(renderCircle);
+  applyVisibility();
+}
+
+function toggleCircles(){
+  circlesVisible=!circlesVisible;
+  const btn=document.getElementById('radius-toggle');
+  btn.style.opacity=circlesVisible?'1':'0.4';
+  applyVisibility();
 }
 
 function renderAll(){
-  locations.forEach(renderMarker);
+  // Clear old circles
+  Object.values(circleLayerMap).forEach(c=>c.remove());
+  circleLayerMap={};
+  locations.forEach(l=>{renderMarker(l);renderCircle(l);});
   renderLegend();
   const sb=document.getElementById('sidebar');
   if(sb.classList.contains('open')&&document.getElementById('sidebar-title').textContent==='All Locations') renderList();
@@ -746,12 +806,14 @@ async function syncFromSheet(){
       const cat=String(row[catIdx]||'').trim();
       if(cat&&!categories.find(c=>c.name===cat))
         categories.push({name:cat,color:FALLBACK_COLORS[categories.length%FALLBACK_COLORS.length]});
+      const showRadius=String(row[6]||'').trim()==='1';
       locations.push({
         id:Date.now().toString(36)+Math.random().toString(36).slice(2),
         name,address:addr,
         website:webIdx>=0?String(row[webIdx]||'').trim():'',
         category:cat||categories[0]?.name||'Uncategorized',
-        lat:lat||null,lng:lng||null
+        lat:lat||null,lng:lng||null,
+        showRadius
       });
       added++;
     }
@@ -778,6 +840,8 @@ async function syncFromSheet(){
 
 
 
+// Init radius input
+document.getElementById('radius-input').value=radiusMiles;
 renderAll();
 initUrlBar();
 </script>

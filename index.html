@@ -62,7 +62,6 @@
   .popup-link{display:block;font-size:12px;color:#60a5fa;word-break:break-all}
   .popup-link:hover{color:#93c5fd}
   .state-popup-name{font-size:13px;font-weight:600;margin-bottom:4px;color:#e8eaf0}
-  .state-path{pointer-events:auto !important}
   .state-popup-cat{font-size:12px;color:#9ca3af}
   @keyframes pin-bounce{
     0%,100%{transform:translateY(0)}
@@ -158,6 +157,40 @@ map.createPane('statePane');
 map.getPane('statePane').style.zIndex=350;
 map.getPane('statePane').style.pointerEvents='none';
 stateLayerGroup.addTo(map);
+
+// Handle state hover + click via map-level events so circles always win
+let hoveredStateName = null;
+map.on('mousemove', function(e){
+  if(!statesGeoJSON) return;
+  const hit = statesGeoJSON.features.find(f=>pointInGeoJSONFeature(e.latlng, f));
+  const name = hit?.properties?.name || null;
+  if(name === hoveredStateName) return;
+  // Un-hover previous
+  if(hoveredStateName && stateLayerMap[hoveredStateName] && hoveredStateName!==selectedStateName){
+    const prev=stateLayerMap[hoveredStateName];
+    const r=regions[hoveredStateName];
+    if(r&&!hiddenRegionCats.has(r.category))
+      prev.setStyle({fillColor:r.color,fillOpacity:.28,color:r.color,weight:1.5,opacity:.7});
+    else
+      prev.setStyle({fillColor:'transparent',fillOpacity:0,color:'transparent',weight:0,opacity:0});
+  }
+  hoveredStateName = name;
+  // Hover new
+  if(name && name!==selectedStateName && stateLayerMap[name]){
+    const r=regions[name];
+    if(r&&!hiddenRegionCats.has(r.category))
+      stateLayerMap[name].setStyle({fillOpacity:.45});
+    else
+      stateLayerMap[name].setStyle({fillColor:'#94a3b8',fillOpacity:.15,color:'#94a3b8',weight:1,opacity:.4});
+  }
+  map.getContainer().style.cursor = name ? 'pointer' : '';
+});
+
+map.on('click', function(e){
+  if(!statesGeoJSON) return;
+  const hit = statesGeoJSON.features.find(f=>pointInGeoJSONFeature(e.latlng, f));
+  if(hit) showPinsInState(hit.properties.name, hit, stateLayerMap[hit.properties.name]);
+});
 
 // ── US states TopoJSON ────────────────────────────────────────────────────────
 fetch('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json')
@@ -468,8 +501,7 @@ function renderStateLayer(){
         color:vis?color:'#94a3b8',
         weight:.5,
         opacity:vis?.7:.15,
-        interactive:true,
-        className:'state-path'
+        interactive:false
       };
     },
     onEachFeature:(f,layer)=>{
@@ -479,21 +511,7 @@ function renderStateLayer(){
       const color=hasRegion?regionColor(n):'#94a3b8';
       stateLayerMap[n]=layer;
 
-      layer.on('mouseover',()=>{
-        if(n===selectedStateName) return;
-        if(hasRegion&&!hiddenRegionCats.has(cat))
-          layer.setStyle({fillOpacity:.45});
-        else
-          layer.setStyle({fillColor:'#94a3b8',fillOpacity:.15,color:'#94a3b8',weight:1,opacity:.4});
-      });
-      layer.on('mouseout',()=>{
-        if(n===selectedStateName) return;
-        if(hasRegion&&!hiddenRegionCats.has(cat))
-          layer.setStyle({fillColor:color,fillOpacity:.28,color:color,weight:1.5,opacity:.7});
-        else
-          layer.setStyle({fillColor:'transparent',fillOpacity:0,color:'transparent',weight:0,opacity:0});
-      });
-      layer.on('click',()=>showPinsInState(n, f, layer));
+      // interactions handled via map-level click (see below)
     }
   },{pane:'statePane'}).addTo(stateLayerGroup);
   renderLegend();

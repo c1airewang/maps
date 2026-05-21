@@ -121,7 +121,7 @@ const DATA_KEY = 'mapapp_locations';
 const CAT_KEY  = 'mapapp_categories';   // [{name, color}]
 const REGIONS_KEY = 'mapapp_regions';   // {stateName: {category, color}}
 const REGION_CATS_KEY = 'mapapp_region_cats';
-const RADIUS_KEY     = 'mapapp_radius_miles'; // [{name, color}]
+const RADIUS_KEY     = 'mapapp_radius_miles'; // Key string for local storage
 
 // Fallback palette if no cell color found
 const FALLBACK_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#8b5cf6','#ec4899','#f43f5e','#06b6d4'];
@@ -712,7 +712,7 @@ function showPinsInRadius(sourceLoc){
   });
   setGlow(inside.map(l=>l.id));
 
-  // Fit map to circle bounds using the already rendered circle
+  
 
   // Build sidebar list
   const catOrder=sortedCategories().map(c=>c.name);
@@ -730,7 +730,7 @@ function showPinsInRadius(sourceLoc){
       onclick="openPopupInPlace('${l.id}')">
       <span class="pin-dot" style="background:${c}"></span>
       <span class="pin-name">${l.name}</span>
-      <span class="pin-cat" style="color:#9ca3af">${dist} mi</span>
+      <span class="pin-cat">${dist} mi</span>
     </li>`;
   }).join('');
 
@@ -773,15 +773,20 @@ function applyVisibility(){
   });
 }
 
+let radiusTimeout;
 function onRadiusInput(){
-  const val=parseFloat(document.getElementById('radius-input').value)||50;
-  radiusMiles=val;
-  localStorage.setItem(RADIUS_KEY,val);
-  // Re-render all circles with new radius
-  Object.values(circleLayerMap).forEach(c=>c.remove());
-  circleLayerMap={};
-  locations.forEach(renderCircle);
-  applyVisibility();
+  clearTimeout(radiusTimeout);
+  radiusTimeout = setTimeout(() => {
+    const val=parseFloat(document.getElementById('radius-input').value)||50;
+    radiusMiles=val;
+    localStorage.setItem(RADIUS_KEY,val);
+    
+    // Re-render all circles with new radius safely after user stops typing
+    Object.values(circleLayerMap).forEach(c=>c.remove());
+    circleLayerMap={};
+    locations.forEach(renderCircle);
+    applyVisibility();
+  }, 300); // Waits 300ms after the last keystroke
 }
 
 function toggleCircles(){
@@ -952,16 +957,6 @@ function toggleUrlVisibility(){
     // URL now hidden — show eye-off
     icon.innerHTML='<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>';
   }
-}
-
-function normaliseHex(val){
-  if(!val) return null;
-  const v=String(val).trim();
-  if(!v) return null;
-  if(v.startsWith('#')&&(v.length===4||v.length===7)) return v.toLowerCase();
-  if(/^[0-9a-fA-F]{6}$/.test(v)) return '#'+v.toLowerCase();
-  if(/^[0-9a-fA-F]{3}$/.test(v)) return '#'+v.toLowerCase();
-  return null;
 }
 
 function sheetIdFrom(url){

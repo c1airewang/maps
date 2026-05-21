@@ -70,7 +70,7 @@
     60%{transform:translateY(-5px)}
     80%{transform:translateY(-8px)}
   }
-  .pin-bouncing{animation:pin-bounce .7s ease infinite}
+  .pin-bouncing .pin-wrap{animation:pin-bounce .7s ease infinite}
   /* Excel format guide */
 </style>
 </head>
@@ -583,10 +583,11 @@ function saveRegions(){
 
 // ── Pin rendering ─────────────────────────────────────────────────────────────
 function makeIcon(color, glow=false){
-  // Keep identical size/anchor for both states — glow is CSS only
   const glowStyle=glow?'filter:drop-shadow(0 0 4px white) drop-shadow(0 0 2px white)':'';
-  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36" style="${glowStyle}"><path d="M14 0C6.268 0 0 6.268 0 14c0 9.333 14 22 14 22S28 23.333 28 14C28 6.268 21.732 0 14 0z" fill="${color}"/><circle cx="14" cy="14" r="5" fill="white" opacity="0.9"/></svg>`;
-  return L.divIcon({html:svg,className:'',iconSize:[28,36],iconAnchor:[14,36],popupAnchor:[0,-38]});
+  // Wrap SVG in .pin-wrap div so bounce animation targets the wrapper,
+  // not the outer icon element (which Leaflet uses for positioning)
+  const html=`<div class="pin-wrap" style="width:28px;height:36px;${glowStyle}"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36"><path d="M14 0C6.268 0 0 6.268 0 14c0 9.333 14 22 14 22S28 23.333 28 14C28 6.268 21.732 0 14 0z" fill="${color}"/><circle cx="14" cy="14" r="5" fill="white" opacity="0.9"/></svg></div>`;
+  return L.divIcon({html,className:'',iconSize:[28,36],iconAnchor:[14,36],popupAnchor:[0,-38]});
 }
 
 let glowingIds   = new Set();
@@ -679,6 +680,9 @@ function renderCircle(loc){
 }
 
 function showPinsInRadius(sourceLoc){
+  // Clear any active state selection
+  clearStateSelection();
+
   const inside=locations.filter(l=>{
     if(!l.lat||!l.lng) return false;
     return distanceMiles(sourceLoc.lat,sourceLoc.lng,l.lat,l.lng)<=radiusMiles;

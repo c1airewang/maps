@@ -195,13 +195,61 @@ map.on('click', function(e){
   if(hit) showPinsInState(hit.properties.name, hit, stateLayerMap[hit.properties.name]);
 });
 
-// ── US states TopoJSON ────────────────────────────────────────────────────────
-fetch('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json')
-  .then(r=>r.json()).then(topo=>{
-    statesGeoJSON=topoToGeo(topo,topo.objects.states);
-    renderStateLayer();
-  })
-  .catch(()=>console.warn('Could not load states GeoJSON'));
+// ── Region polygons: US states + Canadian provinces + world countries ───────
+// We merge three sources into one FeatureCollection. Each feature gets a
+// `name` property (state, province, or country). The US and Canada are
+// removed from the world-countries layer so they don't overlap with the
+// finer-grained state/province layers.
+(async function loadRegionGeo(){
+  const features=[];
+
+  // 1. US states (TopoJSON from us-atlas)
+  try{
+    const r=await fetch('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json');
+    const topo=await r.json();
+    const geo=topoToGeo(topo,topo.objects.states);
+    geo.features.forEach(f=>{
+      // us-atlas sets f.properties.name to the state name already
+      features.push(f);
+    });
+  }catch(e){console.warn('Could not load US states GeoJSON',e);}
+
+  // 2. Canadian provinces (Natural Earth, served via a public GeoJSON mirror)
+  try{
+    const r=await fetch('https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/canada.geojson');
+    const geo=await r.json();
+    geo.features.forEach(f=>{
+      // This dataset uses `name` for the province name already
+      const provName=f.properties.name;
+      if(!provName) return;
+      f.properties.name=provName;
+      f.properties.kind='province';
+      features.push(f);
+    });
+  }catch(e){console.warn('Could not load Canadian provinces GeoJSON',e);}
+
+  // 3. World countries (excluding US and Canada — those are covered above)
+  try{
+    const r=await fetch('https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson');
+    const geo=await r.json();
+    geo.features.forEach(f=>{
+      const p=f.properties||{};
+      // ADMIN is the country name in this dataset; fall back to `name` if present
+      const countryName=p.ADMIN||p.admin||p.name||p.NAME;
+      if(!countryName) return;
+      // Skip the US and Canada to avoid overlapping the finer layers
+      const lower=countryName.toLowerCase();
+      if(lower==='united states of america'||lower==='united states'||
+         lower==='canada') return;
+      f.properties.name=countryName;
+      f.properties.kind='country';
+      features.push(f);
+    });
+  }catch(e){console.warn('Could not load world countries GeoJSON',e);}
+
+  statesGeoJSON={type:'FeatureCollection',features};
+  renderStateLayer();
+})();
 
 function topoToGeo(topo,obj){
   const sc=topo.transform?topo.transform.scale:[1,1];
@@ -240,11 +288,54 @@ const ABBR_TO_NAME={
   SD:"South Dakota",TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",VA:"Virginia",
   WA:"Washington",WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming"
 };
+
+// Canadian provinces and territories — 2-letter postal abbreviations
+const CA_ABBR_TO_NAME={
+  AB:"Alberta",BC:"British Columbia",MB:"Manitoba",NB:"New Brunswick",
+  NL:"Newfoundland and Labrador",NS:"Nova Scotia",NT:"Northwest Territories",
+  NU:"Nunavut",ON:"Ontario",PE:"Prince Edward Island",QC:"Quebec",
+  SK:"Saskatchewan",YT:"Yukon"
+};
+// Canonical Canadian province names (so we can recognise them as-typed)
+const CA_PROVINCES=new Set(Object.values(CA_ABBR_TO_NAME));
+
+// Common country-name aliases → canonical name used in the countries GeoJSON
+// (ADMIN field from datasets/geo-countries). Add more here as needed.
+const COUNTRY_ALIASES={
+  "uk":"United Kingdom","u.k.":"United Kingdom","great britain":"United Kingdom",
+  "britain":"United Kingdom","england":"United Kingdom",
+  "usa":"United States of America","us":"United States of America",
+  "u.s.":"United States of America","u.s.a.":"United States of America",
+  "united states":"United States of America",
+  "uae":"United Arab Emirates","u.a.e.":"United Arab Emirates",
+  "south korea":"South Korea","korea":"South Korea","republic of korea":"South Korea",
+  "north korea":"North Korea","dprk":"North Korea",
+  "russia":"Russia","russian federation":"Russia",
+  "czech republic":"Czechia","czechia":"Czechia",
+  "ivory coast":"Ivory Coast","côte d'ivoire":"Ivory Coast","cote d'ivoire":"Ivory Coast",
+  "vietnam":"Vietnam","viet nam":"Vietnam",
+  "myanmar":"Myanmar","burma":"Myanmar",
+  "drc":"Democratic Republic of the Congo","dr congo":"Democratic Republic of the Congo",
+  "congo-kinshasa":"Democratic Republic of the Congo",
+  "congo":"Republic of the Congo","congo-brazzaville":"Republic of the Congo"
+};
+
 function normState(s){
   const t=s.trim();
+  if(!t) return t;
   const up=t.toUpperCase();
+  // US state abbreviation?
   if(ABBR_TO_NAME[up]) return ABBR_TO_NAME[up];
+  // Canadian province abbreviation?
+  if(CA_ABBR_TO_NAME[up]) return CA_ABBR_TO_NAME[up];
+  // Exact US state name?
   for(const v of Object.values(FIPS)) if(v.toLowerCase()===t.toLowerCase()) return v;
+  // Exact Canadian province name?
+  for(const v of CA_PROVINCES) if(v.toLowerCase()===t.toLowerCase()) return v;
+  // Country alias?
+  const aliased=COUNTRY_ALIASES[t.toLowerCase()];
+  if(aliased) return aliased;
+  // Otherwise pass through as-is; render will match country GeoJSON by name
   return t;
 }
 
@@ -534,15 +625,30 @@ function showPinsInState(stateName, feature, layer){
   const selColor=regions[stateName]?regionColor(stateName):'#94a3b8';
   layer.setStyle({fillColor:selColor,fillOpacity:.35,color:selColor,weight:2,opacity:.9});
 
+  // Record sidebar context so legend toggles can re-filter live
+  sidebarMode='state';
+  sidebarCtx={stateName,feature};
 
-  // Find all pins within state polygon
-  const inside=locations.filter(l=>{
+  document.getElementById('sidebar').classList.add('open');
+  showEscBtn();
+  renderSidebarState();
+}
+
+// Build the state-view sidebar contents from current locations + filters.
+// Called both on initial state click and whenever legend filters change.
+function renderSidebarState(){
+  const {stateName,feature}=sidebarCtx;
+  if(!feature) return;
+
+  // All pins inside the polygon (unfiltered — used for "X of Y" awareness if needed)
+  const allInside=locations.filter(l=>{
     if(!l.lat||!l.lng) return false;
     return pointInGeoJSONFeature({lat:l.lat,lng:l.lng}, feature);
   });
+  // Apply legend visibility filter
+  const inside=filterByVisibleCats(allInside);
 
   setGlow(inside.map(l=>l.id));
-  sidebarLocs=[...inside];
   sidebarLocs=[...inside];
 
   const catOrder=sortedCategories().map(c=>c.name);
@@ -564,8 +670,6 @@ function showPinsInState(stateName, feature, layer){
     </li>`;
   }).join('');
 
-  document.getElementById('sidebar').classList.add('open');
-  showEscBtn();
   document.getElementById('sidebar-title').textContent=stateName;
   document.getElementById('sidebar-body').innerHTML=`
     <div style="font-size:12px;color:#6b7280;margin-bottom:10px">${inside.length} location${inside.length!==1?'s':''} in state</div>
@@ -613,6 +717,20 @@ function makeIcon(color, glow=false){
 let sidebarLocs = [];
 let glowingIds   = new Set();
 let bouncingId = null;
+
+// Track which sidebar view is currently active so legend toggles can
+// re-filter without losing the user's context. Modes:
+//   'all'    – full list (renderList)
+//   'state'  – pins inside a selected state/province/country
+//   'radius' – pins inside a selected radius circle
+//   null     – sidebar closed
+let sidebarMode = null;
+let sidebarCtx  = {}; // { stateName, feature } or { sourceLoc }
+
+// Apply legend category filter to a list of locations
+function filterByVisibleCats(list){
+  return list.filter(l=>!hiddenCats.has(l.category));
+}
 
 function bouncePin(id){
   stopBounce(); // always clear previous first
@@ -707,13 +825,28 @@ function showPinsInRadius(sourceLoc){
   // Clear any active state selection
   clearStateSelection();
 
-  const inside=locations.filter(l=>{
+  // Record context so legend toggles can re-filter live
+  sidebarMode='radius';
+  sidebarCtx={sourceLoc};
+
+  document.getElementById('sidebar').classList.add('open');
+  showEscBtn();
+  renderSidebarRadius();
+}
+
+function renderSidebarRadius(){
+  const {sourceLoc}=sidebarCtx;
+  if(!sourceLoc) return;
+
+  const allInside=locations.filter(l=>{
     if(!l.lat||!l.lng) return false;
     return distanceMiles(sourceLoc.lat,sourceLoc.lng,l.lat,l.lng)<=radiusMiles;
   });
-  setGlow(inside.map(l=>l.id));
+  const inside=filterByVisibleCats(allInside);
 
-  // Build sidebar list
+  setGlow(inside.map(l=>l.id));
+  sidebarLocs=[...inside];
+
   const catOrder=sortedCategories().map(c=>c.name);
   const sorted=[...inside].sort((a,b)=>{
     const ai=catOrder.indexOf(a.category),bi=catOrder.indexOf(b.category);
@@ -733,9 +866,6 @@ function showPinsInRadius(sourceLoc){
     </li>`;
   }).join('');
 
-  // Open sidebar without closing it if already open
-  document.getElementById('sidebar').classList.add('open');
-  showEscBtn();
   document.getElementById('sidebar-title').textContent=`Within ${radiusMiles} mi`;
   document.getElementById('sidebar-body').innerHTML=`
     <div style="font-size:12px;color:#6b7280;margin-bottom:4px">
@@ -848,17 +978,26 @@ function renderLegend(){
   el.innerHTML=html;
 }
 
+// Re-render the sidebar list with current filters applied, preserving
+// whichever mode is active (all / state / radius). Called whenever the
+// legend's visible-category set changes.
+function refreshSidebar(){
+  if(sidebarMode==='state')       renderSidebarState();
+  else if(sidebarMode==='radius') renderSidebarRadius();
+  else if(sidebarMode==='all')    renderList();
+}
+
 function toggleCat(cat){
   hiddenCats.has(cat)?hiddenCats.delete(cat):hiddenCats.add(cat);
-  applyVisibility();renderLegend();
+  applyVisibility();renderLegend();refreshSidebar();
 }
 function hideAllCats(){
   categories.forEach(c=>hiddenCats.add(c.name));
-  applyVisibility();renderLegend();
+  applyVisibility();renderLegend();refreshSidebar();
 }
 function showAllCats(){
   hiddenCats.clear();
-  applyVisibility();renderLegend();
+  applyVisibility();renderLegend();refreshSidebar();
 }
 function toggleRegionCat(cat){
   hiddenRegionCats.has(cat)?hiddenRegionCats.delete(cat):hiddenRegionCats.add(cat);
@@ -881,31 +1020,39 @@ function openSidebar(mode){
 function closeSidebar(){
   document.getElementById('sidebar').classList.remove('open');
   hideEscBtn(); // Keeps the header clean when hidden
+  sidebarMode=null;
+  sidebarCtx={};
 }
 
 function renderList() {
-  sidebarLocs=[...locations];
+  // Record sidebar state so legend toggles can re-filter live
+  sidebarMode='all';
+  sidebarCtx={};
+
+  // Apply legend visibility filter
+  const visible=filterByVisibleCats(locations);
+  sidebarLocs=[...visible];
   document.getElementById('sidebar-title').textContent = 'All Locations';
-  
+
   // Ensure the top left Esc button is visible if desired, or hidden 
   showEscBtn(); 
-  
+
   // Group locations by category in sorted order, then alphabetically within each group
   const catOrder = sortedCategories().map(c => c.name);
-  const sorted = [...locations].sort((a, b) => {
+  const sorted = [...visible].sort((a, b) => {
     const ai = catOrder.indexOf(a.category); const bi = catOrder.indexOf(b.category);
     if (ai !== bi) return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
     return a.name.localeCompare(b.name);
   });
-  
+
   const items=sorted.map(l=>`<li class="pin-item"
     onmouseenter="bouncePin('${l.id}')"
     onmouseleave="stopBounce()"
     onclick="flyTo('${l.id}')">
     <span class="pin-dot" style="background:${catColor(l.category)}"></span>
     <span class="pin-name">${l.name}</span><span class="pin-cat">${l.category||''}</span></li>`).join('');
-    
-  document.getElementById('sidebar-body').innerHTML=`<div style="font-size:12px;color:#6b7280;margin-bottom:8px">${locations.length} locations</div>
+
+  document.getElementById('sidebar-body').innerHTML=`<div style="font-size:12px;color:#6b7280;margin-bottom:8px">${visible.length} location${visible.length!==1?'s':''}</div>
     <ul id="pin-list">${items||'<li style="color:#6b7280;font-size:13px;padding:10px">No locations yet.</li>'}</ul>`;
 }
 

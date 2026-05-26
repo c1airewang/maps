@@ -898,14 +898,21 @@ function applyVisibility(){
     const m=markers[l.id];
     if(m) m.setOpacity(hiddenCats.has(l.category)?0:1);
     const c=circleLayerMap[l.id];
-    if(c) c.setStyle({
-      opacity:(!circlesVisible||hiddenCats.has(l.category))?0:0.5,
-      fillOpacity:(!circlesVisible||hiddenCats.has(l.category))?0:0.08
-    });
+    if(c){
+      const hidden=!circlesVisible||hiddenCats.has(l.category);
+      c.setStyle({
+        opacity:hidden?0:0.5,
+        fillOpacity:hidden?0:0.08
+      });
+      // Also disable mouse interaction on the underlying SVG path so a
+      // hidden circle does not intercept clicks/hovers meant for the
+      // state layer beneath it. Leaflet sets pointer-events on the path
+      // itself (overriding any pane-level CSS), so we set it per-element.
+      if(c._path) c._path.style.pointerEvents=hidden?'none':'auto';
+    }
   });
-  // When circles are hidden globally, also turn off pointer-events on the
-  // whole circle pane so the invisible hit-area doesn't intercept hovers
-  // or clicks that should fall through to the state layer / map underneath.
+  // Belt-and-suspenders: also toggle the pane in case any individual
+  // circle path doesn't exist yet at the moment this runs.
   const pane=map.getPane('circlePane');
   if(pane) pane.style.pointerEvents=circlesVisible?'auto':'none';
 }

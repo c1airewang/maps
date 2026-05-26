@@ -139,7 +139,7 @@ let regions        = JSON.parse(localStorage.getItem(REGIONS_KEY)||'{}');
 // regionCategories: [{name, color}]
 let regionCategories = JSON.parse(localStorage.getItem(REGION_CATS_KEY)||'[]');
 let hiddenRegionCats = new Set();
-let radiusMiles      = parseFloat(localStorage.getItem('mapapp_radius_miles')||'50');
+let radiusMiles      = parseFloat(localStorage.getItem('mapapp_radius_miles')||'100');
 let circlesVisible   = true;
 let circleLayerMap   = {}; // loc.id -> L.circle
 let stateLayerGroup  = L.layerGroup();
@@ -896,7 +896,13 @@ function applyCircleVisibility(){
 function applyVisibility(){
   locations.forEach(l=>{
     const m=markers[l.id];
-    if(m) m.setOpacity(hiddenCats.has(l.category)?0:1);
+    if(m){
+      const hiddenMarker=hiddenCats.has(l.category);
+      m.setOpacity(hiddenMarker?0:1);
+      // Disable mouse interaction on the icon element so a hidden pin
+      // doesn't catch clicks meant for the state/region beneath it.
+      if(m._icon) m._icon.style.pointerEvents=hiddenMarker?'none':'auto';
+    }
     const c=circleLayerMap[l.id];
     if(c){
       const hidden=!circlesVisible||hiddenCats.has(l.category);
@@ -921,7 +927,7 @@ let radiusTimeout;
 function onRadiusInput(){
   clearTimeout(radiusTimeout);
   radiusTimeout = setTimeout(() => {
-    const val=parseFloat(document.getElementById('radius-input').value)||50;
+    const val=parseFloat(document.getElementById('radius-input').value)||100;
     radiusMiles=val;
     localStorage.setItem(RADIUS_KEY,val);
     

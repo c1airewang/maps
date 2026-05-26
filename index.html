@@ -812,7 +812,10 @@ function renderCircle(loc){
     bubblingMouseEvents:false,
     pane:'circlePane'
   }).addTo(map);
-  circle.on('mouseover',function(){this.setStyle({fillOpacity:0.18,cursor:'pointer'});});
+  circle.on('mouseover',function(){
+    if(!circlesVisible) return;
+    this.setStyle({fillOpacity:0.18,cursor:'pointer'});
+  });
   circle.on('mouseout',function(){this.setStyle({fillOpacity:circlesVisible?0.08:0});});
   circle.on('click',(e)=>{
     e.originalEvent._handled=true;
@@ -900,6 +903,11 @@ function applyVisibility(){
       fillOpacity:(!circlesVisible||hiddenCats.has(l.category))?0:0.08
     });
   });
+  // When circles are hidden globally, also turn off pointer-events on the
+  // whole circle pane so the invisible hit-area doesn't intercept hovers
+  // or clicks that should fall through to the state layer / map underneath.
+  const pane=map.getPane('circlePane');
+  if(pane) pane.style.pointerEvents=circlesVisible?'auto':'none';
 }
 
 let radiusTimeout;

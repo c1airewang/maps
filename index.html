@@ -1234,7 +1234,7 @@ async function syncFromSheet(){
 // ── Shared workbook parser — used by both Sync and Excel Upload ───────────────
 async function parseAndLoadWorkbook(wb){
   // ── Categories tab ─────────────────────────────────────────────────────
-  const catSheet=findSheet(wb,['categories','category','colors','colours','legend']);
+  const catSheet=findSheet(wb,['locations','categories','category','colors','colours','legend']);
   if(catSheet){
     const rows=sheetRows(catSheet);
     if(rows.length>1){
@@ -1293,7 +1293,7 @@ async function parseAndLoadWorkbook(wb){
   }
 
   // ── Locations tab ──────────────────────────────────────────────────────
-  const locSheet=findSheet(wb,['locations','location','addresses','address','data','company','site','place']);
+  const locSheet=findSheet(wb,['data','addresses','address','company','site','place']);
   if(!locSheet){toast('Could not find Locations tab — name it "Locations"','error');return {added:0,geocoded:0,failed:0};}
   const rows=sheetRows(locSheet);
   if(rows.length<2){toast('Locations tab appears empty','error');return {added:0,geocoded:0,failed:0};}

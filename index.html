@@ -533,7 +533,6 @@ function parseRegionsSheet(sheet){
     result[stateName]={category:catName, color};
     if(!regionCats[catName]) regionCats[catName]=color;
   }
-  console.log('Regions parsed:',Object.keys(result).length,'shaded,',skipped,'skipped (no fill)');
   return{regions:result, regionCats:Object.entries(regionCats).map(([name,color])=>({name,color}))};
 }
 
@@ -1222,7 +1221,6 @@ function findSheet(wb, hints){
     const name=wb.SheetNames.find(n=>n.toLowerCase().includes(h.toLowerCase()));
     if(name){console.log('findSheet matched partial:',name,'for hint:',h);return wb.Sheets[name];}
   }
-  console.warn('findSheet: no match for hints',hints,'in sheets',wb.SheetNames);
   return null;
 }
 
@@ -1264,7 +1262,6 @@ async function syncFromSheet(){
 
 // ── Shared workbook parser — used by both Sync and Excel Upload ───────────────
 async function parseAndLoadWorkbook(wb){
-  console.log('parseAndLoadWorkbook called, sheets:', wb.SheetNames);
   // ── Categories tab ─────────────────────────────────────────────────────
   const catSheet=findSheet(wb,['locations','categories','category','colors','colours','legend']);
   if(catSheet){
@@ -1383,7 +1380,6 @@ async function parseAndLoadWorkbook(wb){
 // ── Excel file upload handler ─────────────────────────────────────────────────
 async function handleXlsxUpload(e){
   const file=e.target.files[0];
-  console.log('handleXlsxUpload called, file:', file?.name);
   if(!file) return;
   const label=e.target.closest('label');
   const origText=label.childNodes[0].textContent.trim();

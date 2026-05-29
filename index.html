@@ -88,6 +88,10 @@
     </button>
     <button id="sync-btn" class="tb-btn primary" onclick="syncFromSheet()" style="flex-shrink:0">🔄 Sync</button>
   </div>
+  <label class="tb-btn" title="Upload Excel file (local test mode)" style="cursor:pointer;margin:0">
+    ⬆ Excel
+    <input type="file" accept=".xlsx,.xls" id="xlsx-upload" style="display:none" onchange="handleXlsxUpload(event)">
+  </label>
   <div style="display:flex;align-items:center;gap:5px;margin-left:4px">
     <span style="font-size:11px;color:#6b7280;white-space:nowrap">Radius (mi)</span>
     <input type="number" id="radius-input" min="1" max="500" value="100"
@@ -609,7 +613,7 @@ function renderStateLayer(){
   renderLegend();
 }
 
-function showPinsInState(stateName, feature, layer){
+function showPinsInState(stateName, feature, layer, pushToStack=true){
   // Deselect previous
   if(selectedStateName && stateLayerMap[selectedStateName]){
     const prev=stateLayerMap[selectedStateName];
@@ -625,6 +629,11 @@ function showPinsInState(stateName, feature, layer){
   const selColor=regions[stateName]?regionColor(stateName):'#94a3b8';
   layer.setStyle({fillColor:selColor,fillOpacity:.35,color:selColor,weight:2,opacity:.9});
 
+  // Only push to stack if drilling deeper (e.g. company → state would be unusual, but lateral state→state replaces)
+  if(pushToStack){
+    if(sidebarMode && sidebarMode!=='state') navStack.push({mode:sidebarMode, ctx:{...sidebarCtx}, selectedState:selectedStateName});
+    else navStack=[]; // lateral navigation resets stack
+  }
   // Record sidebar context so legend toggles can re-filter live
   sidebarMode='state';
   sidebarCtx={stateName,feature};
@@ -680,9 +689,24 @@ function renderSidebarState(){
 }
 
 function escapeSelection(){
-  clearStateSelection();
-  setGlow([]);
-  renderList(); // Let renderList handle the button states completely
+  if(navStack.length>0){
+    const prev=navStack.pop();
+    // Restore state highlight if previous view had one
+    if(prev.selectedState && stateLayerMap[prev.selectedState]){
+      const layer=stateLayerMap[prev.selectedState];
+      const selColor=regions[prev.selectedState]?regionColor(prev.selectedState):'#94a3b8';
+      layer.setStyle({fillColor:selColor,fillOpacity:.35,color:selColor,weight:2,opacity:.9});
+      selectedStateName=prev.selectedState;
+    }
+    if(prev.mode==='state') showPinsInState(prev.ctx.stateName, prev.ctx.feature, stateLayerMap[prev.ctx.stateName]||stateLayerMap[prev.selectedState], false);
+    else if(prev.mode==='radius') showPinsInRadius(prev.ctx.sourceLoc, false);
+    else if(prev.mode==='company') showCompanyLocations(prev.ctx.parent, false);
+    else { clearStateSelection(); setGlow([]); renderList(); }
+  } else {
+    clearStateSelection();
+    setGlow([]);
+    renderList();
+  }
 }
 
 function showEscBtn(){ document.getElementById('esc-btn').style.display='inline-block'; }
@@ -715,6 +739,8 @@ function makeIcon(color, glow=false){
 }
 
 let sidebarLocs = [];
+let legendCollapsed = false;
+let navStack = []; // [{type, args}] — history of sidebar views for Esc to navigate back
 let glowingIds   = new Set();
 let bouncingId = null;
 
@@ -725,7 +751,7 @@ let bouncingId = null;
 //   'radius' – pins inside a selected radius circle
 //   null     – sidebar closed
 let sidebarMode = null;
-let sidebarCtx  = {}; // { stateName, feature } or { sourceLoc }
+let sidebarCtx  = {}; // { stateName, feature } or { sourceLoc } or { parent }
 
 // Apply legend category filter to a list of locations
 function filterByVisibleCats(list){
@@ -778,11 +804,21 @@ function renderMarker(loc){
   const safeUrl=rawUrl&&!rawUrl.match(/^https?:\/\//)? 'https://'+rawUrl : rawUrl;
   const web=safeUrl?`<a href="${safeUrl}" target="_blank" class="popup-link">${rawUrl}</a>`:'<span style="font-size:12px;color:#6b7280">No website</span>';
   const cs=`background:${color}22;color:${color};`;
+  const parentCount=loc.parent?locations.filter(l=>l.parent===loc.parent).length:0;
+  const parentBtn=loc.parent&&parentCount>1?`<div style="margin-top:10px;border-top:1px solid #2a2f3e;padding-top:8px">
+    <button onclick="showCompanyLocations('${loc.parent.replace(/'/g,"\\'")}',true)"
+      style="width:100%;background:#1e2535;border:1px solid #2a3045;color:#c5c9d6;padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:background .15s"
+      onmouseover="this.style.background='#252d40'" onmouseout="this.style.background='#1e2535'">
+      <span>All ${loc.parent} locations</span>
+      <span style="background:#2a3045;color:#9ca3af;font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600">${parentCount}</span>
+    </button>
+    </div>`:'';
   m.bindPopup(`<div style="min-width:200px">
     <div class="popup-name">${loc.name}</div>
+    ${loc.parent?`<div style="font-size:11px;color:#6b7280;margin-bottom:4px">${loc.parent}</div>`:''}
     <div class="popup-addr">${loc.address}</div>
     <span class="popup-cat" style="${cs}">${loc.category||'Uncategorized'}</span><br>${web}
-    </div>`);
+    ${parentBtn}</div>`);
   markers[loc.id]=m;
   applyVisibility();
 }
@@ -824,11 +860,16 @@ function renderCircle(loc){
   circleLayerMap[loc.id]=circle;
 }
 
-function showPinsInRadius(sourceLoc){
+function showPinsInRadius(sourceLoc, pushToStack=true){
+  if(pushToStack) navStack.push({type:'radius', sourceLoc});
   // Clear any active state selection
   clearStateSelection();
 
   // Record context so legend toggles can re-filter live
+  if(pushToStack){
+    if(sidebarMode && sidebarMode!=='radius') navStack.push({mode:sidebarMode, ctx:{...sidebarCtx}, selectedState:selectedStateName});
+    else navStack=[];
+  }
   sidebarMode='radius';
   sidebarCtx={sourceLoc};
 
@@ -877,7 +918,7 @@ function renderSidebarRadius(){
     <div style="font-size:12px;color:#6b7280;margin-bottom:10px">${inside.length} location${inside.length!==1?'s':''} found</div>
     <ul id="pin-list">${items||'<li style="color:#6b7280;font-size:13px;padding:10px">No locations in range.</li>'}</ul>
     <div style="margin-top:12px">
-      <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="setGlow([]);renderList()">← All locations</button>
+      <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="navStack=[];setGlow([]);renderList()">← All locations</button>
     </div>`;
 }
 
@@ -949,7 +990,7 @@ function toggleCircles(){
 function renderAll(){
   // Clear old circles, glow, and state selection
   Object.values(circleLayerMap).forEach(c=>c.remove());
-  circleLayerMap={};glowingIds=new Set();clearStateSelection();stopBounce();
+  circleLayerMap={};glowingIds=new Set();clearStateSelection();stopBounce();navStack=[];sidebarMode=null;sidebarCtx={};
   locations.forEach(l=>{renderMarker(l);renderCircle(l);});
   renderLegend();
   const sb=document.getElementById('sidebar');
@@ -974,6 +1015,12 @@ function renderLegend(){
   const hasRegions=regionCategories.length>0;
   if(!hasPins&&!hasRegions){el.style.display='none';return;}
   el.style.display='block';
+  // Toggle button always shown
+  html+=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${legendCollapsed?'0':'6px'}">
+    <span style="font-size:10px;font-weight:600;color:#6b7280;letter-spacing:.6px;text-transform:uppercase">Legend</span>
+    <button onclick="toggleLegend()" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:11px;padding:0 0 0 8px;line-height:1">${legendCollapsed?'▲ expand':'▼ collapse'}</button>
+  </div>`;
+  if(legendCollapsed){el.innerHTML=html;return;}
   if(hasPins){
     const allHidden=sortedCategories().filter(c=>locations.find(l=>l.category===c.name)).every(c=>hiddenCats.has(c.name));
     html+=`<div class="legend-section-title" style="display:flex;align-items:center;justify-content:space-between">
@@ -1170,121 +1217,7 @@ async function syncFromSheet(){
     if(!resp.ok) throw new Error('HTTP '+resp.status+' — make sure the sheet is shared as "Anyone with the link can view"');
     const buf=await resp.arrayBuffer();
     const wb=XLSX.read(buf,{type:'array',cellStyles:true});
-
-    // ── Categories tab ─────────────────────────────────────────────────────
-    // Fixed columns: A=name, B=hex color, C=order (optional integer)
-    const catSheet=findSheet(wb,['categories','category','colors','colours','legend']);
-    if(catSheet){
-      const rows=sheetRows(catSheet);
-      if(rows.length>1){
-        const newCats=[];
-        for(let i=1;i<rows.length;i++){
-          const r=rows[i];
-          const name=String(r[0]||'').trim();
-          if(!name) continue;
-          // Col B: hex color — SheetJS returns cell value as string
-          const rawHex=r[1]!==undefined&&r[1]!==null?String(r[1]).trim():'';
-          const hex=normaliseHex(rawHex);
-          const orderRaw=r[2]!==undefined&&r[2]!==null?String(r[2]).trim():'';
-          const order=orderRaw!==''&&!isNaN(orderRaw)?parseInt(orderRaw):null;
-          console.log(`Category row ${i}: name="${name}" rawHex="${rawHex}" hex="${hex}" order="${order}"`);
-          newCats.push({name,color:hex||FALLBACK_COLORS[newCats.length%FALLBACK_COLORS.length],order});
-        }
-        if(newCats.length){
-          const seen=new Set();
-          categories=newCats.filter(c=>{if(seen.has(c.name))return false;seen.add(c.name);return true;});
-          save();
-          console.log('Final categories:', JSON.stringify(categories));
-        }
-      }
-    }
-
-    // ── Regions tab ────────────────────────────────────────────────────────
-    const regSheet=findSheet(wb,['regions','region','states','state','territory','shade']);
-    if(regSheet){
-      const rows=sheetRows(regSheet);
-      if(rows.length>1){
-        const headers=rows[0].map(h=>String(h).toLowerCase());
-        const stateIdx=headers.findIndex(h=>h.includes('state')||h.includes('region')||h.includes('name'));
-        const hexIdx  =headers.findIndex(h=>h.includes('hex')||h.includes('color')||h.includes('colour'));
-        const catIdx  =headers.findIndex(h=>h.includes('cat')||h.includes('label')||h.includes('type')||h.includes('group'));
-        if(stateIdx>=0){
-          const newRegions={};const newRegionCats={};
-          for(let i=1;i<rows.length;i++){
-            const r=rows[i];
-            const stateName=normState(String(r[stateIdx]||'').trim());
-            if(!stateName) continue;
-            const hex=hexIdx>=0?normaliseHex(r[hexIdx]):null;
-            if(!hex) continue;
-            let catName=catIdx>=0?String(r[catIdx]||'').trim():'';
-            if(!catName){
-              const existing=Object.entries(newRegionCats).find(([,c])=>c===hex);
-              catName=existing?existing[0]:'Region '+(Object.keys(newRegionCats).length+1);
-            }
-            newRegions[stateName]={category:catName,color:hex};
-            if(!newRegionCats[catName]) newRegionCats[catName]=hex;
-          }
-          if(Object.keys(newRegions).length){
-            regions=newRegions;
-            regionCategories=Object.entries(newRegionCats).map(([name,color])=>({name,color}));
-            saveRegions();
-            if(statesGeoJSON) renderStateLayer();
-            // if GeoJSON not yet loaded, the fetch .then() will call renderStateLayer when ready
-          }
-        }
-      }
-    }
-
-    // ── Locations tab ──────────────────────────────────────────────────────
-    const locSheet=findSheet(wb,['locations','location','addresses','address','data','company','site','place']);
-    if(!locSheet){toast('Could not find Locations tab — name it "Locations" or "Addresses"','error');return;}
-    const rows=sheetRows(locSheet);
-    if(rows.length<2){toast('Locations tab appears empty','error');return;}
-
-    // Fixed column order: Name, Address, Website, Category, Lat, Lng
-    const nameIdx=0, addrIdx=1, webIdx=2, catIdx=3, latIdx=4, lngIdx=5;
-
-    Object.values(markers).forEach(m=>m.remove());
-    markers={};locations=[];
-
-    let added=0,geocoded=0,failed=0;
-    for(let i=1;i<rows.length;i++){
-      const row=rows[i];
-      const name=String(row[nameIdx]||'').trim();
-      const addr=String(row[addrIdx]||'').trim();
-      if(!name||!addr) continue;
-      let lat=latIdx>=0?parseFloat(row[latIdx]):NaN;
-      let lng=lngIdx>=0?parseFloat(row[lngIdx]):NaN;
-      if(isNaN(lat)||isNaN(lng)){
-        try{
-          const res=await geocodeAddr(addr);
-          if(res){lat=res.lat;lng=res.lng;geocoded++;}
-          else{lat=null;lng=null;failed++;}
-          await new Promise(r=>setTimeout(r,1100));
-        }catch{lat=null;lng=null;failed++;}
-      }
-      const cat=String(row[catIdx]||'').trim();
-      if(cat&&!categories.find(c=>c.name===cat))
-        categories.push({name:cat,color:FALLBACK_COLORS[categories.length%FALLBACK_COLORS.length]});
-      const showRadius=String(row[6]||'').trim()==='1';
-      locations.push({
-        id:Date.now().toString(36)+Math.random().toString(36).slice(2),
-        name,address:addr,
-        website:webIdx>=0?String(row[webIdx]||'').trim():'',
-        category:cat||categories[0]?.name||'Uncategorized',
-        lat:lat||null,lng:lng||null,
-        showRadius
-      });
-      added++;
-    }
-    // Final dedupe of categories by name (case-insensitive), keep first occurrence
-    const seenCats=new Set();
-    categories=categories.filter(c=>{
-      const key=c.name.toLowerCase().trim();
-      if(seenCats.has(key)) return false;
-      seenCats.add(key);return true;
-    });
-    save();renderAll();
+    const {added,geocoded,failed}=await parseAndLoadWorkbook(wb);
     const parts=[`Synced ${added} locations`];
     if(geocoded) parts.push(`geocoded ${geocoded}`);
     if(failed) parts.push(`${failed} failed`);
@@ -1295,6 +1228,144 @@ async function syncFromSheet(){
     console.error('Sheet sync error:',err);
   }finally{
     btn.textContent='🔄 Sync';btn.disabled=false;
+  }
+}
+
+// ── Shared workbook parser — used by both Sync and Excel Upload ───────────────
+async function parseAndLoadWorkbook(wb){
+  // ── Categories tab ─────────────────────────────────────────────────────
+  const catSheet=findSheet(wb,['categories','category','colors','colours','legend']);
+  if(catSheet){
+    const rows=sheetRows(catSheet);
+    if(rows.length>1){
+      const newCats=[];
+      for(let i=1;i<rows.length;i++){
+        const r=rows[i];
+        const name=String(r[0]||'').trim();
+        if(!name) continue;
+        const rawHex=r[1]!==undefined&&r[1]!==null?String(r[1]).trim():'';
+        const hex=normaliseHex(rawHex);
+        const orderRaw=r[2]!==undefined&&r[2]!==null?String(r[2]).trim():'';
+        const order=orderRaw!==''&&!isNaN(orderRaw)?parseInt(orderRaw):null;
+        newCats.push({name,color:hex||FALLBACK_COLORS[newCats.length%FALLBACK_COLORS.length],order});
+      }
+      if(newCats.length){
+        const seen=new Set();
+        categories=newCats.filter(c=>{if(seen.has(c.name))return false;seen.add(c.name);return true;});
+        save();
+      }
+    }
+  }
+
+  // ── Regions tab ────────────────────────────────────────────────────────
+  const regSheet=findSheet(wb,['regions','region','states','state','territory','shade']);
+  if(regSheet){
+    const rows=sheetRows(regSheet);
+    if(rows.length>1){
+      const headers=rows[0].map(h=>String(h).toLowerCase());
+      const stateIdx=headers.findIndex(h=>h.includes('state')||h.includes('region')||h.includes('name'));
+      const hexIdx  =headers.findIndex(h=>h.includes('hex')||h.includes('color')||h.includes('colour'));
+      const catIdx  =headers.findIndex(h=>h.includes('cat')||h.includes('label')||h.includes('type')||h.includes('group'));
+      if(stateIdx>=0){
+        const newRegions={};const newRegionCats={};
+        for(let i=1;i<rows.length;i++){
+          const r=rows[i];
+          const stateName=normState(String(r[stateIdx]||'').trim());
+          if(!stateName) continue;
+          const hex=hexIdx>=0?normaliseHex(r[hexIdx]):null;
+          if(!hex) continue;
+          let catName=catIdx>=0?String(r[catIdx]||'').trim():'';
+          if(!catName){
+            const existing=Object.entries(newRegionCats).find(([,c])=>c===hex);
+            catName=existing?existing[0]:'Region '+(Object.keys(newRegionCats).length+1);
+          }
+          newRegions[stateName]={category:catName,color:hex};
+          if(!newRegionCats[catName]) newRegionCats[catName]=hex;
+        }
+        if(Object.keys(newRegions).length){
+          regions=newRegions;
+          regionCategories=Object.entries(newRegionCats).map(([name,color])=>({name,color}));
+          saveRegions();
+          if(statesGeoJSON) renderStateLayer();
+        }
+      }
+    }
+  }
+
+  // ── Locations tab ──────────────────────────────────────────────────────
+  const locSheet=findSheet(wb,['locations','location','addresses','address','data','company','site','place']);
+  if(!locSheet){toast('Could not find Locations tab — name it "Locations"','error');return {added:0,geocoded:0,failed:0};}
+  const rows=sheetRows(locSheet);
+  if(rows.length<2){toast('Locations tab appears empty','error');return {added:0,geocoded:0,failed:0};}
+
+  // Fixed column order: Name, Parent, Address, Website, Category, Lat, Lng, Radius
+  const nameIdx=0, parentIdx=1, addrIdx=2, webIdx=3, catIdx=4, latIdx=5, lngIdx=6;
+
+  Object.values(markers).forEach(m=>m.remove());
+  markers={};locations=[];
+
+  let added=0,geocoded=0,failed=0;
+  for(let i=1;i<rows.length;i++){
+    const row=rows[i];
+    const name=String(row[nameIdx]||'').trim();
+    const parent=String(row[parentIdx]||'').trim();
+    const addr=String(row[addrIdx]||'').trim();
+    if(!name||!addr) continue;
+    let lat=latIdx>=0?parseFloat(row[latIdx]):NaN;
+    let lng=lngIdx>=0?parseFloat(row[lngIdx]):NaN;
+    if(isNaN(lat)||isNaN(lng)){
+      try{
+        const res=await geocodeAddr(addr);
+        if(res){lat=res.lat;lng=res.lng;geocoded++;}
+        else{lat=null;lng=null;failed++;}
+        await new Promise(r=>setTimeout(r,1100));
+      }catch{lat=null;lng=null;failed++;}
+    }
+    const cat=String(row[catIdx]||'').trim();
+    if(cat&&!categories.find(c=>c.name===cat))
+      categories.push({name:cat,color:FALLBACK_COLORS[categories.length%FALLBACK_COLORS.length]});
+    const showRadius=String(row[7]||'').trim()==='1';
+    locations.push({
+      id:Date.now().toString(36)+Math.random().toString(36).slice(2),
+      name,parent,address:addr,
+      website:webIdx>=0?String(row[webIdx]||'').trim():'',
+      category:cat||categories[0]?.name||'Uncategorized',
+      lat:lat||null,lng:lng||null,
+      showRadius
+    });
+    added++;
+  }
+  const seenCats=new Set();
+  categories=categories.filter(c=>{
+    const key=c.name.toLowerCase().trim();
+    if(seenCats.has(key)) return false;
+    seenCats.add(key);return true;
+  });
+  save();renderAll();
+  return {added,geocoded,failed};
+}
+
+// ── Excel file upload handler ─────────────────────────────────────────────────
+async function handleXlsxUpload(e){
+  const file=e.target.files[0];
+  if(!file) return;
+  const label=e.target.closest('label');
+  const origText=label.childNodes[0].textContent.trim();
+  label.childNodes[0].textContent='⏳ Loading…';
+  try{
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array',cellStyles:true});
+    const {added,geocoded,failed}=await parseAndLoadWorkbook(wb);
+    const parts=[`Loaded ${added} locations from Excel`];
+    if(geocoded) parts.push(`geocoded ${geocoded}`);
+    if(failed) parts.push(`${failed} failed`);
+    toast(parts.join(', '),failed?'error':null);
+  }catch(err){
+    toast('Upload failed: '+err.message,'error');
+    console.error('Excel upload error:',err);
+  }finally{
+    label.childNodes[0].textContent='⬆ Excel';
+    e.target.value='';
   }
 }
 
@@ -1310,6 +1381,61 @@ document.addEventListener('keydown',e=>{
 });
 renderAll();
 initUrlBar();
+
+function showCompanyLocations(parent, pushToStack=true){
+  // Only push if drilling deeper from state/radius into company
+  if(pushToStack){
+    if(sidebarMode && sidebarMode!=='company') navStack.push({mode:sidebarMode, ctx:{...sidebarCtx}, selectedState:selectedStateName});
+    else navStack=[];
+  }
+  // Visually reset state highlight (but keep selectedStateName in stack for back-nav)
+  if(selectedStateName&&stateLayerMap[selectedStateName]){
+    const layer=stateLayerMap[selectedStateName];
+    const r=regions[selectedStateName];
+    if(r&&!hiddenRegionCats.has(r.category))
+      layer.setStyle({fillColor:r.color,fillOpacity:.28,color:r.color,weight:1.5,opacity:.7});
+    else
+      layer.setStyle({fillColor:'transparent',fillOpacity:0,color:'transparent',weight:0,opacity:0});
+    selectedStateName=null;
+  }
+  const inside=locations.filter(l=>l.parent===parent);
+  if(!inside.length) return;
+  setGlow(inside.map(l=>l.id));
+  sidebarLocs=[...inside];
+  const catOrder=sortedCategories().map(c=>c.name);
+  const sorted=[...inside].sort((a,b)=>{
+    const ai=catOrder.indexOf(a.category),bi=catOrder.indexOf(b.category);
+    if(ai!==bi) return (ai<0?999:ai)-(bi<0?999:bi);
+    return a.name.localeCompare(b.name);
+  });
+  const items=sorted.map(l=>{
+    const c=catColor(l.category);
+    return `<li class="pin-item"
+      onmouseenter="bouncePin('${l.id}')"
+      onmouseleave="stopBounce()"
+      onclick="openPopupInPlace('${l.id}')">
+      <span class="pin-dot" style="background:${c}"></span>
+      <span class="pin-name">${l.name}</span>
+      <span class="pin-cat">${l.category||''}</span>
+    </li>`;
+  }).join('');
+  sidebarMode='company';
+  sidebarCtx={parent};
+  document.getElementById('sidebar').classList.add('open');
+  showEscBtn();
+  document.getElementById('sidebar-title').textContent=parent;
+  document.getElementById('sidebar-body').innerHTML=`
+    <div style="font-size:12px;color:#6b7280;margin-bottom:10px">${inside.length} location${inside.length!==1?'s':''}</div>
+    <ul id="pin-list">${items}</ul>
+    <div style="margin-top:12px">
+      <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="navStack=[];clearStateSelection();setGlow([]);renderList()">← All locations</button>
+    </div>`;
+}
+
+function toggleLegend(){
+  legendCollapsed=!legendCollapsed;
+  renderLegend();
+}
 
 function exportSidebar(){
   if(!sidebarLocs.length){toast('Nothing to export','error');return;}

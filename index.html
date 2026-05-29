@@ -673,10 +673,14 @@ function renderSidebarState(){
     return `<li class="pin-item"
       onmouseenter="bouncePin('${l.id}')"
       onmouseleave="stopBounce()"
-      onclick="openPopupInPlace('${l.id}')">
-      <span class="pin-dot" style="background:${c}"></span>
-      <span class="pin-name">${l.name}</span>
-      <span class="pin-cat">${l.category||''}</span>
+      onclick="openPopupInPlace('${l.id}')"
+      style="flex-direction:column;align-items:flex-start;gap:2px">
+      <div style="display:flex;align-items:center;gap:8px;width:100%">
+        <span class="pin-dot" style="background:${c};flex-shrink:0"></span>
+        <span class="pin-name" style="flex:1">${l.name}</span>
+        <span class="pin-cat">${l.category||''}</span>
+      </div>
+      <div style="font-size:11px;color:#6b7280;padding-left:18px">${l.address}</div>
     </li>`;
   }).join('');
 
@@ -914,10 +918,14 @@ function renderSidebarRadius(){
     return `<li class="pin-item"
       onmouseenter="bouncePin('${l.id}')"
       onmouseleave="stopBounce()"
-      onclick="openPopupInPlace('${l.id}')">
-      <span class="pin-dot" style="background:${c}"></span>
-      <span class="pin-name">${l.name}</span>
-      <span class="pin-cat">${dist} mi</span>
+      onclick="openPopupInPlace('${l.id}')"
+      style="flex-direction:column;align-items:flex-start;gap:2px">
+      <div style="display:flex;align-items:center;gap:8px;width:100%">
+        <span class="pin-dot" style="background:${c};flex-shrink:0"></span>
+        <span class="pin-name" style="flex:1">${l.name}</span>
+        <span class="pin-cat" style="color:#9ca3af">${dist} mi</span>
+      </div>
+      <div style="font-size:11px;color:#6b7280;padding-left:18px">${l.address}</div>
     </li>`;
   }).join('');
 
@@ -1146,9 +1154,15 @@ function renderList() {
   const items=sorted.map(l=>`<li class="pin-item"
     onmouseenter="bouncePin('${l.id}')"
     onmouseleave="stopBounce()"
-    onclick="flyTo('${l.id}')">
-    <span class="pin-dot" style="background:${catColor(l.category)}"></span>
-    <span class="pin-name">${l.name}</span><span class="pin-cat">${l.category||''}</span></li>`).join('');
+    onclick="flyTo('${l.id}')"
+    style="flex-direction:column;align-items:flex-start;gap:2px">
+    <div style="display:flex;align-items:center;gap:8px;width:100%">
+      <span class="pin-dot" style="background:${catColor(l.category)};flex-shrink:0"></span>
+      <span class="pin-name" style="flex:1">${l.name}</span>
+      <span class="pin-cat">${l.category||''}</span>
+    </div>
+    <div style="font-size:11px;color:#6b7280;padding-left:18px">${l.address}</div>
+  </li>`).join('');
 
   document.getElementById('sidebar-body').innerHTML=`<div style="font-size:12px;color:#6b7280;margin-bottom:8px">${visible.length} location${visible.length!==1?'s':''}</div>
     <ul id="pin-list">${items||'<li style="color:#6b7280;font-size:13px;padding:10px">No locations yet.</li>'}</ul>`;
@@ -1236,6 +1250,9 @@ async function syncFromSheet(){
   const sheetId=sheetIdFrom(rawUrl);
   if(!sheetId){toast('Could not parse Sheet ID from URL — paste the URL from your browser address bar','error');return;}
 
+  // Reset Excel upload indicator if present
+  const xlsxLabel=document.querySelector('#xlsx-upload')?.closest('label');
+  if(xlsxLabel){xlsxLabel.style.borderColor='';xlsxLabel.style.color='';xlsxLabel.childNodes[0].textContent='⬆ Excel';}
   const btn=document.getElementById('sync-btn');
   btn.textContent='⏳ Syncing…';btn.disabled=true;
 
@@ -1388,7 +1405,8 @@ async function handleXlsxUpload(e){
     const buf=await file.arrayBuffer();
     const wb=XLSX.read(buf,{type:'array',cellStyles:true});
     const {added,geocoded,failed}=await parseAndLoadWorkbook(wb);
-    const parts=[`Loaded ${added} locations from Excel`];
+    const hasSavedUrl=!!localStorage.getItem(SHEET_URL_KEY);
+    const parts=[`Loaded ${added} locations from Excel${hasSavedUrl?' — hit Sync to revert to live data':''}`];
     if(geocoded) parts.push(`geocoded ${geocoded}`);
     if(failed) parts.push(`${failed} failed`);
     toast(parts.join(', '),failed?'error':null);
@@ -1396,7 +1414,9 @@ async function handleXlsxUpload(e){
     toast('Upload failed: '+err.message,'error');
     console.error('Excel upload error:',err);
   }finally{
-    label.childNodes[0].textContent='⬆ Excel';
+    label.childNodes[0].textContent='✓ Excel';
+    label.style.borderColor='#22c55e';
+    label.style.color='#22c55e';
     e.target.value='';
   }
 }

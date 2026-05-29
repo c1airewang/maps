@@ -136,6 +136,8 @@ let locations      = JSON.parse(localStorage.getItem(DATA_KEY)||'[]');
 let categories     = JSON.parse(localStorage.getItem(CAT_KEY)||'[]');
 if(!categories.length) categories = [{name:'Our Locations',color:'#3b82f6'},{name:'Partners',color:'#22c55e'},{name:'Prospects',color:'#f97316'},{name:'Competitors',color:'#ef4444'}];
 let hiddenCats     = new Set();
+let activeTags     = new Set(); // empty = no tag filter (show all)
+let tagMode        = 'OR';      // 'OR' or 'AND'
 let markers        = {};
 
 // regions: { stateName -> {category, color} }
@@ -753,9 +755,17 @@ let bouncingId = null;
 let sidebarMode = null;
 let sidebarCtx  = {}; // { stateName, feature } or { sourceLoc } or { parent }
 
-// Apply legend category filter to a list of locations
+// Apply category + tag filters to a list of locations
 function filterByVisibleCats(list){
-  return list.filter(l=>!hiddenCats.has(l.category));
+  return list.filter(l=>isLocVisible(l));
+}
+function isLocVisible(l){
+  if(hiddenCats.has(l.category)) return false;
+  if(activeTags.size===0) return true; // no tag filter active
+  const tags=l.tags||['N/A'];
+  if(tagMode==='OR') return tags.some(t=>activeTags.has(t));
+  if(tagMode==='AND') return [...activeTags].every(t=>tags.includes(t));
+  return true;
 }
 
 function bouncePin(id){
@@ -817,7 +827,9 @@ function renderMarker(loc){
     <div class="popup-name">${loc.name}</div>
     ${loc.parent?`<div style="font-size:11px;color:#6b7280;margin-bottom:4px">${loc.parent}</div>`:''}
     <div class="popup-addr">${loc.address}</div>
-    <span class="popup-cat" style="${cs}">${loc.category||'Uncategorized'}</span><br>${web}
+    <span class="popup-cat" style="${cs}">${loc.category||'Uncategorized'}</span>
+    ${loc.tags&&loc.tags.length&&!(loc.tags.length===1&&loc.tags[0]==='N/A')?`<span style="margin-left:4px">${loc.tags.map(t=>`<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#1e2535;color:#9ca3af;border:1px solid #2a3045;margin-left:2px">${t}</span>`).join('')}</span>`:''}
+    <br>${web}
     ${parentBtn}</div>`);
   markers[loc.id]=m;
   applyVisibility();
@@ -938,15 +950,13 @@ function applyVisibility(){
   locations.forEach(l=>{
     const m=markers[l.id];
     if(m){
-      const hiddenMarker=hiddenCats.has(l.category);
+      const hiddenMarker=!isLocVisible(l);
       m.setOpacity(hiddenMarker?0:1);
-      // Disable mouse interaction on the icon element so a hidden pin
-      // doesn't catch clicks meant for the state/region beneath it.
       if(m._icon) m._icon.style.pointerEvents=hiddenMarker?'none':'auto';
     }
     const c=circleLayerMap[l.id];
     if(c){
-      const hidden=!circlesVisible||hiddenCats.has(l.category);
+      const hidden=!circlesVisible||!isLocVisible(l);
       c.setStyle({
         opacity:hidden?0:0.5,
         fillOpacity:hidden?0:0.08
@@ -990,7 +1000,7 @@ function toggleCircles(){
 function renderAll(){
   // Clear old circles, glow, and state selection
   Object.values(circleLayerMap).forEach(c=>c.remove());
-  circleLayerMap={};glowingIds=new Set();clearStateSelection();stopBounce();navStack=[];sidebarMode=null;sidebarCtx={};
+  circleLayerMap={};glowingIds=new Set();clearStateSelection();stopBounce();navStack=[];sidebarMode=null;sidebarCtx={};activeTags=new Set();
   locations.forEach(l=>{renderMarker(l);renderCircle(l);});
   renderLegend();
   const sb=document.getElementById('sidebar');
@@ -1043,6 +1053,27 @@ function renderLegend(){
       html+=`<div class="legend-item ${muted}" onclick="toggleRegionCat('${c.name}')"><span class="legend-swatch" style="background:${c.color}44;border-color:${c.color}"></span>${c.name}<span style="color:#9ca3af;margin-left:3px">(${count})</span></div>`;
     });
   }
+  // Tags section
+  const allTags=[...new Set(locations.flatMap(l=>l.tags||['N/A']))].sort((a,b)=>a==='N/A'?1:b==='N/A'?-1:a.localeCompare(b));
+  if(allTags.length>1||(allTags.length===1&&allTags[0]!=='N/A')){
+    if(hasPins||hasRegions) html+=`<hr class="legend-divider">`;
+    html+=`<div class="legend-section-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <span>Tags</span>
+      <button onclick="toggleTagMode()" style="background:#1e2535;border:1px solid #2a3045;color:#9ca3af;font-size:10px;padding:1px 7px;border-radius:4px;cursor:pointer;font-weight:600;letter-spacing:.3px">${tagMode}</button>
+    </div>`;
+    if(activeTags.size>0){
+      html+=`<div style="font-size:10px;color:#6b7280;margin-bottom:5px;cursor:pointer" onclick="clearTags()">✕ clear filters</div>`;
+    }
+    allTags.forEach(tag=>{
+      const active=activeTags.has(tag);
+      const count=locations.filter(l=>(l.tags||['N/A']).includes(tag)).length;
+      html+=`<div class="legend-item ${active?'':'muted'}" onclick="toggleTag('${tag}')" style="gap:6px">
+        <span style="width:10px;height:10px;border-radius:2px;flex-shrink:0;border:1px solid ${active?'#c5c9d6':'#2a3045'};background:${active?'#c5c9d6':'transparent'};display:inline-block"></span>
+        ${tag}<span style="color:#9ca3af;margin-left:3px">(${count})</span>
+      </div>`;
+    });
+  }
+
   el.innerHTML=html;
 }
 
@@ -1233,6 +1264,7 @@ async function syncFromSheet(){
 
 // ── Shared workbook parser — used by both Sync and Excel Upload ───────────────
 async function parseAndLoadWorkbook(wb){
+  console.log('parseAndLoadWorkbook called, sheets:', wb.SheetNames);
   // ── Categories tab ─────────────────────────────────────────────────────
   const catSheet=findSheet(wb,['locations','categories','category','colors','colours','legend']);
   if(catSheet){
@@ -1325,13 +1357,16 @@ async function parseAndLoadWorkbook(wb){
     if(cat&&!categories.find(c=>c.name===cat))
       categories.push({name:cat,color:FALLBACK_COLORS[categories.length%FALLBACK_COLORS.length]});
     const showRadius=String(row[7]||'').trim()==='1';
+    const rawTags=row[8]!==undefined&&row[8]!==null?String(row[8]).trim():'';
+    const tags=rawTags?rawTags.split(',').map(t=>t.trim()).filter(Boolean):['N/A'];
+    if(i<=3) console.log(`Row ${i} col8=`, row[8], '=> tags:', tags);
     locations.push({
       id:Date.now().toString(36)+Math.random().toString(36).slice(2),
       name,parent,address:addr,
       website:webIdx>=0?String(row[webIdx]||'').trim():'',
       category:cat||categories[0]?.name||'Uncategorized',
       lat:lat||null,lng:lng||null,
-      showRadius
+      showRadius,tags
     });
     added++;
   }
@@ -1348,6 +1383,7 @@ async function parseAndLoadWorkbook(wb){
 // ── Excel file upload handler ─────────────────────────────────────────────────
 async function handleXlsxUpload(e){
   const file=e.target.files[0];
+  console.log('handleXlsxUpload called, file:', file?.name);
   if(!file) return;
   const label=e.target.closest('label');
   const origText=label.childNodes[0].textContent.trim();
@@ -1430,6 +1466,20 @@ function showCompanyLocations(parent, pushToStack=true){
     <div style="margin-top:12px">
       <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="navStack=[];clearStateSelection();setGlow([]);renderList()">← All locations</button>
     </div>`;
+}
+
+function toggleTag(tag){
+  if(activeTags.has(tag)) activeTags.delete(tag);
+  else activeTags.add(tag);
+  applyVisibility();renderLegend();refreshSidebar();
+}
+function clearTags(){
+  activeTags.clear();
+  applyVisibility();renderLegend();refreshSidebar();
+}
+function toggleTagMode(){
+  tagMode=tagMode==='OR'?'AND':'OR';
+  applyVisibility();renderLegend();refreshSidebar();
 }
 
 function toggleLegend(){

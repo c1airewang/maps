@@ -1445,10 +1445,14 @@ function showCompanyLocations(parent, pushToStack=true){
     return `<li class="pin-item"
       onmouseenter="bouncePin('${l.id}')"
       onmouseleave="stopBounce()"
-      onclick="openPopupInPlace('${l.id}')">
-      <span class="pin-dot" style="background:${c}"></span>
-      <span class="pin-name">${l.name}</span>
-      <span class="pin-cat">${l.category||''}</span>
+      onclick="openPopupInPlace('${l.id}')"
+      style="flex-direction:column;align-items:flex-start;gap:2px">
+      <div style="display:flex;align-items:center;gap:8px;width:100%">
+        <span class="pin-dot" style="background:${c};flex-shrink:0"></span>
+        <span class="pin-name" style="flex:1">${l.name}</span>
+        <span class="pin-cat">${l.category||''}</span>
+      </div>
+      <div style="font-size:11px;color:#6b7280;padding-left:18px">${l.address}</div>
     </li>`;
   }).join('');
   sidebarMode='company';

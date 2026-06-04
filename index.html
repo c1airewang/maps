@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Map</title>
+<title>Location Map</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -40,7 +40,11 @@
   .pin-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
   .pin-name{font-size:13px;color:#c5c9d6;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pin-cat{font-size:10px;padding:2px 6px;border-radius:10px;background:#1e2535;color:#6b7280;white-space:nowrap}
-  #legend{position:absolute;bottom:24px;left:16px;z-index:999;background:#ffffffee;border:1px solid #d1d5db;border-radius:8px;padding:10px 14px;backdrop-filter:blur(6px);max-width:210px;display:none}
+  #legend{position:absolute;bottom:24px;left:16px;z-index:999;background:#ffffffee;border:1px solid #d1d5db;border-radius:8px;backdrop-filter:blur(6px);max-width:210px;display:none}
+  #legend-inner{padding:10px 14px}
+  .legend-scroll-loc{max-height:300px;overflow-y:auto;margin-right:-4px;padding-right:4px}
+  .legend-scroll-reg{max-height:150px;overflow-y:auto;margin-right:-4px;padding-right:4px}
+  .legend-scroll-tag{max-height:150px;overflow-y:auto;margin-right:-4px;padding-right:4px}
   .legend-section-title{font-size:10px;font-weight:600;color:#6b7280;letter-spacing:.6px;text-transform:uppercase;margin-bottom:5px;margin-top:8px}
   .legend-section-title:first-child{margin-top:0}
   .legend-divider{border:none;border-top:1px solid #e5e7eb;margin:8px 0}
@@ -102,7 +106,7 @@
 </div>
 
 <div id="map"></div>
-<div id="legend"></div>
+<div id="legend"><div id="legend-inner"></div></div>
 
 <div id="sidebar">
   <div class="sidebar-header">
@@ -1043,22 +1047,24 @@ function renderLegend(){
     html+=`<div class="legend-section-title" style="display:flex;align-items:center;justify-content:space-between">
       <span>Locations</span>
       <span onclick="${allHidden?'showAllCats()':'hideAllCats()'}" style="font-size:10px;color:#6b7280;cursor:pointer;font-weight:400;letter-spacing:0;text-transform:none">${allHidden?'show all':'hide all'}</span>
-    </div>`;
+    </div><div class="legend-scroll-loc">`;
     sortedCategories().forEach(c=>{
       const count=locations.filter(l=>l.category===c.name).length;
       if(!count) return;
       const muted=hiddenCats.has(c.name)?'muted':'';
       html+=`<div class="legend-item ${muted}" onclick="toggleCat('${c.name}')"><span class="legend-dot" style="background:${c.color}"></span>${c.name}<span style="color:#9ca3af;margin-left:3px">(${count})</span></div>`;
     });
+    html+=`</div>`;
   }
   if(hasRegions){
     if(hasPins) html+=`<hr class="legend-divider">`;
-    html+=`<div class="legend-section-title">Regions</div>`;
+    html+=`<div class="legend-section-title">Regions</div><div class="legend-scroll-reg">`;
     regionCategories.forEach(c=>{
       const count=Object.values(regions).filter(r=>r.category===c.name).length;
       const muted=hiddenRegionCats.has(c.name)?'muted':'';
       html+=`<div class="legend-item ${muted}" onclick="toggleRegionCat('${c.name}')"><span class="legend-swatch" style="background:${c.color}44;border-color:${c.color}"></span>${c.name}<span style="color:#9ca3af;margin-left:3px">(${count})</span></div>`;
     });
+    html+=`</div>`;
   }
   // Tags section
   const allTags=[...new Set(locations.flatMap(l=>l.tags||['N/A']))].sort((a,b)=>a==='N/A'?1:b==='N/A'?-1:a.localeCompare(b));
@@ -1071,6 +1077,7 @@ function renderLegend(){
     if(activeTags.size>0){
       html+=`<div style="font-size:10px;color:#6b7280;margin-bottom:5px;cursor:pointer" onclick="clearTags()">✕ clear filters</div>`;
     }
+    html+=`<div class="legend-scroll-tag">`;
     allTags.forEach(tag=>{
       const active=activeTags.has(tag);
       const count=locations.filter(l=>(l.tags||['N/A']).includes(tag)).length;
@@ -1079,9 +1086,10 @@ function renderLegend(){
         ${tag}<span style="color:#9ca3af;margin-left:3px">(${count})</span>
       </div>`;
     });
+    html+=`</div>`;
   }
 
-  el.innerHTML=html;
+  document.getElementById('legend-inner').innerHTML=html;
 }
 
 // Re-render the sidebar list with current filters applied, preserving

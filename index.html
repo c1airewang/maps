@@ -1303,11 +1303,10 @@ async function parseAndLoadWorkbook(wb){
         const order=orderRaw!==''&&!isNaN(orderRaw)?parseInt(orderRaw):null;
         newCats.push({name,color:hex||FALLBACK_COLORS[newCats.length%FALLBACK_COLORS.length],order});
       }
-      if(newCats.length){
-        const seen=new Set();
-        categories=newCats.filter(c=>{if(seen.has(c.name))return false;seen.add(c.name);return true;});
-        save();
-      }
+      // Always overwrite — even empty means "clear all categories"
+      const seen=new Set();
+      categories=newCats.filter(c=>{if(seen.has(c.name))return false;seen.add(c.name);return true;});
+      save();
     }
   }
 
@@ -1336,12 +1335,11 @@ async function parseAndLoadWorkbook(wb){
           newRegions[stateName]={category:catName,color:hex};
           if(!newRegionCats[catName]) newRegionCats[catName]=hex;
         }
-        if(Object.keys(newRegions).length){
-          regions=newRegions;
-          regionCategories=Object.entries(newRegionCats).map(([name,color])=>({name,color}));
-          saveRegions();
-          if(statesGeoJSON) renderStateLayer();
-        }
+        // Always overwrite — even empty means "clear all regions"
+        regions=newRegions;
+        regionCategories=Object.entries(newRegionCats).map(([name,color])=>({name,color}));
+        saveRegions();
+        if(statesGeoJSON) renderStateLayer();
       }
     }
   }

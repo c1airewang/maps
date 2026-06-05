@@ -26,6 +26,7 @@ This tool was built for internal use to map and explore a network of locations a
 ### Filtering & Discovery
 - **Category toggles** — show/hide pin categories independently
 - **Tag filters** — multi-value attribute filtering (e.g. by technology, certification, or status) with OR / AND mode
+- **Metric filter** — filter pins by Company Revenue, Company EBITDA, Location Revenue, or Location EBITDA using a range slider with editable min/max values. Dropdown only shows metrics that have data; hidden entirely if no financial data is present
 - **State shading toggles** — show/hide region groups in the legend
 - **Click a state** — instantly see all pins within that state's boundary
 - **Click a radius circle** — see all pins within range, with distances
@@ -34,7 +35,8 @@ This tool was built for internal use to map and explore a network of locations a
 - **List view** — browse all locations with full address
 - **Context-aware sidebar** — changes based on what you click (state, circle, company)
 - **Drill down** — click a pin popup to see all locations for that parent company
-- **Back navigation** — Esc returns to the previous view (e.g. state → company → back to state)
+- **Back navigation** — Esc returns to the previous view (e.g. state → company → back to state). Lateral navigation (state → state) resets the stack so Esc never accumulates more than one level
+- **Rich popups** — each pin popup shows category, tags, website, financial metrics (Company Revenue, Company EBITDA, Location Revenue, Location EBITDA), and notes
 - **Hover to bounce** — hovering a sidebar item bounces the corresponding pin on the map
 - **Export CSV** — download whatever is currently shown in the sidebar
 
@@ -89,7 +91,7 @@ Pins / markers — z-index 600, always on top
 
 ## Google Sheet Setup
 
-The sheet must be shared as **"Anyone with the link can view"** and published to web (File > Share > Publish to Web). Publishing to web allows the sheet to be viewed and parsed in html, which is necessary for this application to read the data.
+The sheet must be shared as **"Anyone with the link can view"**. The app downloads the sheet as an XLSX export directly — no need to publish to web separately.
 
 ### Tab names (must contain these keywords)
 | Tab | Keyword | Contents |
@@ -112,6 +114,11 @@ Columns are read by **position**, not header name. Do not reorder or insert colu
 | G | Lng | Decimal |
 | H | Radius | `1` = draw circle, `0` or blank = none |
 | I | Tags | Comma-separated e.g. `IM, IBM`. Blank = N/A |
+| J | Company Revenue | Raw number (no symbols). Optional |
+| K | Company EBITDA | Raw number. Optional |
+| L | Location Revenue | Raw number. Optional |
+| M | Location EBITDA | Raw number. Optional |
+| N | Notes | Free text. Optional |
 
 ### Column layout — `Locations` tab (categories)
 | Col | Field | Notes |

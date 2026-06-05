@@ -96,7 +96,7 @@ The sheet must be shared as **"Anyone with the link can view"** and published to
 |---|---|---|
 | `Data` | "data" | All location pin data |
 | `Locations` | "locations" | Pin categories, colors, sort order |
-| `Regions` | "regions" | US state shading |
+| `Regions` | "regions" | Regional shading |
 
 ### Column layout — `Data` tab
 Columns are read by **position**, not header name. Do not reorder or insert columns without updating the code.

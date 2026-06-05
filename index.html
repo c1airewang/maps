@@ -105,12 +105,8 @@
   </div>
   <div style="display:flex;align-items:center;gap:6px;margin-left:4px;flex-shrink:0">
     <select id="metric-select" onchange="onMetricChange()"
-      style="background:#1e2535;border:1px solid #2a3045;color:#c5c9d6;padding:5px 7px;border-radius:6px;font-size:12px;outline:none;cursor:pointer">
+      style="display:none;background:#1e2535;border:1px solid #2a3045;color:#c5c9d6;padding:5px 7px;border-radius:6px;font-size:12px;outline:none;cursor:pointer">
       <option value="none">Filter by metric…</option>
-      <option value="coRevenue">Company Revenue</option>
-      <option value="coEbitda">Company EBITDA</option>
-      <option value="locRevenue">Location Revenue</option>
-      <option value="locEbitda">Location EBITDA</option>
     </select>
     <div id="metric-slider-wrap" style="display:none;align-items:center;gap:8px">
       <div style="display:flex;flex-direction:column;gap:4px">
@@ -1062,6 +1058,7 @@ function renderAll(){
   Object.values(circleLayerMap).forEach(c=>c.remove());
   circleLayerMap={};glowingIds=new Set();clearStateSelection();stopBounce();navStack=[];sidebarMode=null;sidebarCtx={};activeTags=new Set();activeMetric='none';metricRange=[null,null];const ms=document.getElementById('metric-select');if(ms)ms.value='none';const mw=document.getElementById('metric-slider-wrap');if(mw)mw.style.display='none';
   locations.forEach(l=>{renderMarker(l);renderCircle(l);});
+  updateMetricDropdown();
   renderLegend();
   const sb=document.getElementById('sidebar');
   if(sb.classList.contains('open')&&document.getElementById('sidebar-title').textContent==='All Locations') renderList();
@@ -1634,6 +1631,33 @@ function onValueInput(which){
     document.getElementById('metric-val-hi').value=formatCurrency(clamped);
   }
   applyVisibility();renderLegend();refreshSidebar();
+}
+
+function updateMetricDropdown(){
+  const sel=document.getElementById('metric-select');
+  const metrics=[
+    {key:'coRevenue',  label:'Company Revenue'},
+    {key:'coEbitda',   label:'Company EBITDA'},
+    {key:'locRevenue', label:'Location Revenue'},
+    {key:'locEbitda',  label:'Location EBITDA'},
+  ];
+  // Check which metrics have at least one non-null value
+  const available=metrics.filter(m=>locations.some(l=>l[m.key]!==null&&l[m.key]!==undefined));
+  // Rebuild options
+  sel.innerHTML='<option value="none">Filter by metric…</option>';
+  available.forEach(m=>{
+    const opt=document.createElement('option');
+    opt.value=m.key;opt.textContent=m.label;
+    sel.appendChild(opt);
+  });
+  // Show/hide the whole dropdown
+  sel.style.display=available.length?'block':'none';
+  // If current selection no longer exists, reset
+  if(activeMetric!=='none'&&!available.find(m=>m.key===activeMetric)){
+    activeMetric='none';sel.value='none';
+    document.getElementById('metric-slider-wrap').style.display='none';
+    metricRange=[null,null];
+  }
 }
 
 function toggleTag(tag){

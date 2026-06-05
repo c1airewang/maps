@@ -103,6 +103,32 @@
       oninput="onRadiusInput()" title="Circle radius in miles">
     <button id="radius-toggle" class="tb-btn" onclick="toggleCircles()" title="Show/hide radius circles" style="padding:5px 8px">⊙</button>
   </div>
+  <div style="display:flex;align-items:center;gap:6px;margin-left:4px;flex-shrink:0">
+    <select id="metric-select" onchange="onMetricChange()"
+      style="background:#1e2535;border:1px solid #2a3045;color:#c5c9d6;padding:5px 7px;border-radius:6px;font-size:12px;outline:none;cursor:pointer">
+      <option value="none">Filter by metric…</option>
+      <option value="coRevenue">Company Revenue</option>
+      <option value="coEbitda">Company EBITDA</option>
+      <option value="locRevenue">Location Revenue</option>
+      <option value="locEbitda">Location EBITDA</option>
+    </select>
+    <div id="metric-slider-wrap" style="display:none;align-items:center;gap:8px">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:10px;color:#6b7280;width:26px;text-align:right;flex-shrink:0">Low</span>
+          <input type="range" id="metric-slider-lo" style="width:100px;accent-color:#3b82f6" oninput="onSliderChange('lo')">
+          <input type="text" id="metric-val-lo" style="width:62px;background:#1e2535;border:1px solid #2a3045;color:#c5c9d6;padding:3px 6px;border-radius:4px;font-size:11px;outline:none;text-align:right"
+            onchange="onValueInput('lo')" onkeydown="if(event.key==='Enter')onValueInput('lo')">
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:10px;color:#6b7280;width:26px;text-align:right;flex-shrink:0">High</span>
+          <input type="range" id="metric-slider-hi" style="width:100px;accent-color:#3b82f6" oninput="onSliderChange('hi')">
+          <input type="text" id="metric-val-hi" style="width:62px;background:#1e2535;border:1px solid #2a3045;color:#c5c9d6;padding:3px 6px;border-radius:4px;font-size:11px;outline:none;text-align:right"
+            onchange="onValueInput('hi')" onkeydown="if(event.key==='Enter')onValueInput('hi')">
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="map"></div>
@@ -142,6 +168,8 @@ if(!categories.length) categories = [{name:'Our Locations',color:'#3b82f6'},{nam
 let hiddenCats     = new Set();
 let activeTags     = new Set(); // empty = no tag filter (show all)
 let tagMode        = 'OR';      // 'OR' or 'AND'
+let activeMetric   = 'none';    // which metric is being filtered
+let metricRange    = [null,null]; // [min, max] of slider — null = no filter
 let markers        = {};
 
 // regions: { stateName -> {category, color} }
@@ -768,10 +796,18 @@ function filterByVisibleCats(list){
 }
 function isLocVisible(l){
   if(hiddenCats.has(l.category)) return false;
-  if(activeTags.size===0) return true; // no tag filter active
-  const tags=l.tags||['N/A'];
-  if(tagMode==='OR') return tags.some(t=>activeTags.has(t));
-  if(tagMode==='AND') return [...activeTags].every(t=>tags.includes(t));
+  // Tag filter
+  if(activeTags.size>0){
+    const tags=l.tags||['N/A'];
+    if(tagMode==='OR'&&!tags.some(t=>activeTags.has(t))) return false;
+    if(tagMode==='AND'&&![...activeTags].every(t=>tags.includes(t))) return false;
+  }
+  // Metric filter
+  if(activeMetric!=='none'&&metricRange[0]!==null&&metricRange[1]!==null){
+    const val=l[activeMetric];
+    if(val===null||val===undefined) return false; // hide if no value for this metric
+    if(val<metricRange[0]||val>metricRange[1]) return false;
+  }
   return true;
 }
 
@@ -820,6 +856,19 @@ function renderMarker(loc){
   const rawUrl=loc.website||'';
   const safeUrl=rawUrl&&!rawUrl.match(/^https?:\/\//)? 'https://'+rawUrl : rawUrl;
   const web=safeUrl?`<a href="${safeUrl}" target="_blank" class="popup-link">${rawUrl}</a>`:'<span style="font-size:12px;color:#6b7280">No website</span>';
+  const finRow=(label,val)=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 6px;border:1px solid #2a2f3e;border-radius:4px;margin-bottom:3px">
+    <span style="color:#6b7280">${label}</span>
+    <span style="color:#c5c9d6">${val!==null&&val!==undefined?formatCurrency(val):'N/A'}</span>
+  </div>`;
+  const hasFinancials=loc.coRevenue!==null||loc.coEbitda!==null||loc.locRevenue!==null||loc.locEbitda!==null;
+  const financialsHtml=hasFinancials?`
+    <div style="margin-top:8px">
+      ${finRow('Company Revenue',loc.coRevenue)}
+      ${finRow('Company EBITDA',loc.coEbitda)}
+      ${finRow('Location Revenue',loc.locRevenue)}
+      ${finRow('Location EBITDA',loc.locEbitda)}
+    </div>`:'';
+  const notesHtml=loc.notes?`<div style="margin-top:6px;border-top:1px solid #2a2f3e;padding:6px 0;font-size:11px;color:#9ca3af"><span style="color:#6b7280">Notes: </span>${loc.notes}</div>`:'';
   const cs=`background:${color}22;color:${color};`;
   const parentCount=loc.parent?locations.filter(l=>l.parent===loc.parent).length:0;
   const parentBtn=loc.parent&&parentCount>1?`<div style="margin-top:10px;border-top:1px solid #2a2f3e;padding-top:8px">
@@ -837,7 +886,7 @@ function renderMarker(loc){
     <span class="popup-cat" style="${cs}">${loc.category||'Uncategorized'}</span>
     ${loc.tags&&loc.tags.length&&!(loc.tags.length===1&&loc.tags[0]==='N/A')?`<span style="margin-left:4px">${loc.tags.map(t=>`<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#1e2535;color:#9ca3af;border:1px solid #2a3045;margin-left:2px">${t}</span>`).join('')}</span>`:''}
     <br>${web}
-    ${parentBtn}</div>`);
+    ${financialsHtml}${notesHtml}${parentBtn}</div>`);
   markers[loc.id]=m;
   applyVisibility();
 }
@@ -1011,7 +1060,7 @@ function toggleCircles(){
 function renderAll(){
   // Clear old circles, glow, and state selection
   Object.values(circleLayerMap).forEach(c=>c.remove());
-  circleLayerMap={};glowingIds=new Set();clearStateSelection();stopBounce();navStack=[];sidebarMode=null;sidebarCtx={};activeTags=new Set();
+  circleLayerMap={};glowingIds=new Set();clearStateSelection();stopBounce();navStack=[];sidebarMode=null;sidebarCtx={};activeTags=new Set();activeMetric='none';metricRange=[null,null];const ms=document.getElementById('metric-select');if(ms)ms.value='none';const mw=document.getElementById('metric-slider-wrap');if(mw)mw.style.display='none';
   locations.forEach(l=>{renderMarker(l);renderCircle(l);});
   renderLegend();
   const sb=document.getElementById('sidebar');
@@ -1089,7 +1138,19 @@ function renderLegend(){
     html+=`</div>`;
   }
 
-  document.getElementById('legend-inner').innerHTML=html;
+  // Save scroll positions before re-render
+  const inner=document.getElementById('legend-inner');
+  const scrolls={};
+  ['legend-scroll-loc','legend-scroll-reg','legend-scroll-tag'].forEach(cls=>{
+    const el=inner.querySelector('.'+cls);
+    if(el) scrolls[cls]=el.scrollTop;
+  });
+  inner.innerHTML=html;
+  // Restore scroll positions after re-render
+  ['legend-scroll-loc','legend-scroll-reg','legend-scroll-tag'].forEach(cls=>{
+    const el=inner.querySelector('.'+cls);
+    if(el&&scrolls[cls]) el.scrollTop=scrolls[cls];
+  });
 }
 
 // Re-render the sidebar list with current filters applied, preserving
@@ -1379,14 +1440,21 @@ async function parseAndLoadWorkbook(wb){
     const showRadius=String(row[7]||'').trim()==='1';
     const rawTags=row[8]!==undefined&&row[8]!==null?String(row[8]).trim():'';
     const tags=rawTags?rawTags.split(',').map(t=>t.trim()).filter(Boolean):['N/A'];
-    if(i<=3) console.log(`Row ${i} col8=`, row[8], '=> tags:', tags);
+    // Columns J-N: financial metrics + notes (raw numbers from SheetJS)
+    const parseNum=v=>{ const n=parseFloat(v); return isNaN(n)?null:n; };
+    const coRevenue =parseNum(row[9]);
+    const coEbitda  =parseNum(row[10]);
+    const locRevenue=parseNum(row[11]);
+    const locEbitda =parseNum(row[12]);
+    const notes     =row[13]!==undefined&&row[13]!==null?String(row[13]).trim():'';
     locations.push({
       id:Date.now().toString(36)+Math.random().toString(36).slice(2),
       name,parent,address:addr,
       website:webIdx>=0?String(row[webIdx]||'').trim():'',
       category:cat||categories[0]?.name||'Uncategorized',
       lat:lat||null,lng:lng||null,
-      showRadius,tags
+      showRadius,tags,
+      coRevenue,coEbitda,locRevenue,locEbitda,notes
     });
     added++;
   }
@@ -1492,6 +1560,80 @@ function showCompanyLocations(parent, pushToStack=true){
     <div style="margin-top:12px">
       <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="navStack=[];clearStateSelection();setGlow([]);renderList()">← All locations</button>
     </div>`;
+}
+
+const METRIC_LABELS={coRevenue:'Company Revenue',coEbitda:'Company EBITDA',locRevenue:'Location Revenue',locEbitda:'Location EBITDA'};
+
+function formatCurrency(n){
+  if(n===null||n===undefined) return 'N/A';
+  if(Math.abs(n)>=1e9) return '$'+(n/1e9).toFixed(1)+'B';
+  if(Math.abs(n)>=1e6) return '$'+(n/1e6).toFixed(1)+'M';
+  if(Math.abs(n)>=1e3) return '$'+(n/1e3).toFixed(0)+'K';
+  return '$'+n.toFixed(0);
+}
+
+function onMetricChange(){
+  activeMetric=document.getElementById('metric-select').value;
+  metricRange=[null,null];
+  const wrap=document.getElementById('metric-slider-wrap');
+  if(activeMetric==='none'){wrap.style.display='none';applyVisibility();renderLegend();refreshSidebar();return;}
+  // Compute min/max for this metric across all locations with a value
+  const vals=locations.map(l=>l[activeMetric]).filter(v=>v!==null&&v!==undefined);
+  if(!vals.length){wrap.style.display='none';return;}
+  const lo=Math.min(...vals), hi=Math.max(...vals);
+  metricRange=[lo,hi];
+  const sliderLo=document.getElementById('metric-slider-lo');
+  const sliderHi=document.getElementById('metric-slider-hi');
+  const step=(hi-lo)/100||1;
+  sliderLo.min=lo;sliderLo.max=hi;sliderLo.step=step;sliderLo.value=lo;
+  sliderHi.min=lo;sliderHi.max=hi;sliderHi.step=step;sliderHi.value=hi;
+  document.getElementById('metric-val-lo').value=formatCurrency(lo);
+  document.getElementById('metric-val-hi').value=formatCurrency(hi);
+  wrap.style.display='flex';
+  applyVisibility();renderLegend();refreshSidebar();
+}
+
+function onSliderChange(which){
+  let lo=parseFloat(document.getElementById('metric-slider-lo').value);
+  let hi=parseFloat(document.getElementById('metric-slider-hi').value);
+  // Clamp: if handles cross, push the other one
+  if(which==='lo'&&lo>hi){ hi=lo; document.getElementById('metric-slider-hi').value=hi; }
+  if(which==='hi'&&hi<lo){ lo=hi; document.getElementById('metric-slider-lo').value=lo; }
+  metricRange=[lo,hi];
+  document.getElementById('metric-val-lo').value=formatCurrency(lo);
+  document.getElementById('metric-val-hi').value=formatCurrency(hi);
+  applyVisibility();renderLegend();refreshSidebar();
+}
+
+// Called when user types directly into the value box
+function onValueInput(which){
+  const raw=document.getElementById(`metric-val-${which}`).value.replace(/[$,KMBkmb\s]/g,'');
+  let val=parseFloat(raw);
+  if(isNaN(val)) return;
+  // Handle K/M/B suffixes typed by user
+  const orig=document.getElementById(`metric-val-${which}`).value.trim();
+  if(/k$/i.test(orig)) val*=1e3;
+  else if(/m$/i.test(orig)) val*=1e6;
+  else if(/b$/i.test(orig)) val*=1e9;
+  // Clamp to slider bounds
+  const sliderLo=document.getElementById('metric-slider-lo');
+  const absMin=parseFloat(sliderLo.min), absMax=parseFloat(document.getElementById('metric-slider-hi').max);
+  val=Math.max(absMin,Math.min(absMax,val));
+  // Update slider and range
+  if(which==='lo'){
+    const hi=parseFloat(document.getElementById('metric-slider-hi').value);
+    const clamped=Math.min(val,hi);
+    document.getElementById('metric-slider-lo').value=clamped;
+    metricRange[0]=clamped;
+    document.getElementById('metric-val-lo').value=formatCurrency(clamped);
+  } else {
+    const lo=parseFloat(document.getElementById('metric-slider-lo').value);
+    const clamped=Math.max(val,lo);
+    document.getElementById('metric-slider-hi').value=clamped;
+    metricRange[1]=clamped;
+    document.getElementById('metric-val-hi').value=formatCurrency(clamped);
+  }
+  applyVisibility();renderLegend();refreshSidebar();
 }
 
 function toggleTag(tag){
